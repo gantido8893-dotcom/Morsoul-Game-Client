@@ -17,7 +17,7 @@ try:
 except ImportError as exc:  # pragma: no cover
     raise RuntimeError("sqlcipher3-wheels is required; do not fall back to unencrypted SQLite") from exc
 
-# TODO(confirm): DDL derived from launcher-spec §7.3 + snapshot.py; game-backend-spec.md §4 missing from repo.
+# DDL derived from SQLite-Schema ERD
 SCHEMA_VERSION = 1
 
 DDL = """
@@ -37,7 +37,7 @@ CREATE TABLE IF NOT EXISTS profile_state (
   profile_id TEXT PRIMARY KEY NOT NULL REFERENCES profiles(profile_id) ON DELETE CASCADE,
   revision INTEGER NOT NULL,
   updated_at INTEGER NOT NULL,
-  playtime INTEGER NOT NULL,
+  playtime INTEGER NOT NULL DEFAULT 0,
   reputation INTEGER NOT NULL DEFAULT 0,
   current_case_id TEXT,
   ending TEXT,
@@ -59,19 +59,17 @@ CREATE TABLE IF NOT EXISTS case_progress (
   warrant_granted INTEGER NOT NULL DEFAULT 0,
   failed_attempts INTEGER NOT NULL DEFAULT 0,
   hint_tier INTEGER NOT NULL DEFAULT 0,
-  deduction_solved INTEGER NOT NULL DEFAULT 0,
-  interrogation_result TEXT,
-  completed_at INTEGER,
+  updated_at INTEGER,
   PRIMARY KEY (profile_id, case_id)
 );
 
-CREATE TABLE IF NOT EXISTS evidence (
+CREATE TABLE IF NOT EXISTS clues_found (
   profile_id TEXT NOT NULL REFERENCES profiles(profile_id) ON DELETE CASCADE,
-  clue_id TEXT NOT NULL,
   case_id TEXT NOT NULL,
+  clue_id TEXT NOT NULL,
   collected_at INTEGER NOT NULL,
   via TEXT NOT NULL,
-  PRIMARY KEY (profile_id, clue_id)
+  PRIMARY KEY (profile_id, case_id, clue_id)
 );
 
 CREATE TABLE IF NOT EXISTS deduction_links (
@@ -82,27 +80,12 @@ CREATE TABLE IF NOT EXISTS deduction_links (
   PRIMARY KEY (profile_id, case_id, source_id, target_id)
 );
 
-CREATE TABLE IF NOT EXISTS unlocks (
-  profile_id TEXT NOT NULL REFERENCES profiles(profile_id) ON DELETE CASCADE,
-  kind TEXT NOT NULL,
-  content_id TEXT NOT NULL,
-  PRIMARY KEY (profile_id, kind, content_id)
-);
-
-CREATE TABLE IF NOT EXISTS runic_logs (
-  profile_id TEXT NOT NULL REFERENCES profiles(profile_id) ON DELETE CASCADE,
-  log_id TEXT NOT NULL,
-  found_at INTEGER,
-  decrypted_at INTEGER,
-  PRIMARY KEY (profile_id, log_id)
-);
-
 CREATE TABLE IF NOT EXISTS case_results (
   profile_id TEXT NOT NULL REFERENCES profiles(profile_id) ON DELETE CASCADE,
   case_id TEXT NOT NULL,
-  conclusion_id TEXT NOT NULL,
-  correct INTEGER NOT NULL,
-  flawed INTEGER NOT NULL,
+  conclusion_id TEXT NOT NULL DEFAULT '',
+  correct INTEGER NOT NULL DEFAULT 1,
+  flawed INTEGER NOT NULL DEFAULT 0,
   strikes INTEGER NOT NULL DEFAULT 0,
   attempts INTEGER NOT NULL DEFAULT 1,
   completed_at INTEGER NOT NULL,
@@ -217,7 +200,7 @@ def list_profiles(path: Path | str, key: bytes) -> list[dict[str, Any]]:
             SELECT p.profile_id, p.display_name, p.created_at, s.revision, s.updated_at, s.playtime,
                    s.reputation, s.current_case_id, s.ending,
                    (SELECT COUNT(*) FROM case_results cr WHERE cr.profile_id = p.profile_id) AS cases_completed,
-                   (SELECT COUNT(*) FROM runic_logs rl WHERE rl.profile_id = p.profile_id AND rl.found_at IS NOT NULL) AS runic_logs
+                   0 AS runic_logs
             FROM profiles p
             LEFT JOIN profile_state s ON s.profile_id = p.profile_id
             ORDER BY COALESCE(s.updated_at, 0) DESC
@@ -265,13 +248,13 @@ def export_snapshot(
                 "warrantGranted": bool(r["warrant_granted"]),
                 "failedAttempts": r["failed_attempts"],
                 "hintTier": r["hint_tier"],
-                "deductionSolved": bool(r["deduction_solved"]),
-                "interrogationResult": r["interrogation_result"],
-                "completedAt": r["completed_at"],
+                "deductionSolved": False,
+                "interrogationResult": None,
+                "completedAt": r["updated_at"] if r["status"] == "completed" else None,
             }
 
         evidence: dict[str, Any] = {}
-        for r in conn.execute("SELECT * FROM evidence WHERE profile_id = ?", (profile_id,)):
+        for r in conn.execute("SELECT * FROM clues_found WHERE profile_id = ?", (profile_id,)):
             evidence[r["clue_id"]] = {
                 "caseID": r["case_id"],
                 "collectedAt": r["collected_at"],
@@ -283,14 +266,7 @@ def export_snapshot(
             deduction_links.setdefault(r["case_id"], []).append([r["source_id"], r["target_id"]])
 
         unlocks: dict[str, list[str]] = {"tool": [], "sector": [], "case": []}
-        for r in conn.execute("SELECT * FROM unlocks WHERE profile_id = ?", (profile_id,)):
-            kind = r["kind"]
-            if kind in unlocks:
-                unlocks[kind].append(r["content_id"])
-
         runic_logs: dict[str, Any] = {}
-        for r in conn.execute("SELECT * FROM runic_logs WHERE profile_id = ?", (profile_id,)):
-            runic_logs[r["log_id"]] = {"foundAt": r["found_at"], "decryptedAt": r["decrypted_at"]}
 
         case_results: dict[str, Any] = {}
         for r in conn.execute("SELECT * FROM case_results WHERE profile_id = ?", (profile_id,)):
@@ -377,6 +353,7 @@ def import_snapshot(
             checkpoint_json = (
                 None if p.checkpoint is None else json.dumps(p.checkpoint, separators=(",", ":"))
             )
+            reputation = getattr(p, "reputation", 0)
             conn.execute(
                 """
                 INSERT INTO profile_state(
@@ -390,7 +367,7 @@ def import_snapshot(
                     snap.revisionID,
                     snap.updatedAt,
                     snap.playtime,
-                    p.reputation,
+                    reputation,
                     p.currentCaseID,
                     p.ending,
                     round(p.focusEnergy.value, 3),
@@ -409,8 +386,8 @@ def import_snapshot(
                     """
                     INSERT INTO case_progress(
                       profile_id, case_id, status, progress_version, objective_id, warrant_granted,
-                      failed_attempts, hint_tier, deduction_solved, interrogation_result, completed_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                      failed_attempts, hint_tier, updated_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         pid,
@@ -421,18 +398,16 @@ def import_snapshot(
                         int(cp.warrantGranted),
                         cp.failedAttempts,
                         cp.hintTier,
-                        int(cp.deductionSolved),
-                        cp.interrogationResult,
-                        cp.completedAt,
+                        cp.completedAt or snap.updatedAt,
                     ),
                 )
             for clue_id, ev in p.evidence.items():
                 conn.execute(
                     """
-                    INSERT INTO evidence(profile_id, clue_id, case_id, collected_at, via)
+                    INSERT INTO clues_found(profile_id, case_id, clue_id, collected_at, via)
                     VALUES (?, ?, ?, ?, ?)
                     """,
-                    (pid, clue_id, ev.caseID, ev.collectedAt, ev.via),
+                    (pid, ev.caseID, clue_id, ev.collectedAt, ev.via),
                 )
             for case_id, links in p.deductionLinks.items():
                 for source_id, target_id in links:
@@ -443,24 +418,6 @@ def import_snapshot(
                         """,
                         (pid, case_id, source_id, target_id),
                     )
-            for kind, ids in (
-                ("tool", p.unlocks.tool),
-                ("sector", p.unlocks.sector),
-                ("case", p.unlocks.case),
-            ):
-                for content_id in ids:
-                    conn.execute(
-                        "INSERT INTO unlocks(profile_id, kind, content_id) VALUES (?, ?, ?)",
-                        (pid, kind, content_id),
-                    )
-            for log_id, rl in p.runicLogs.items():
-                conn.execute(
-                    """
-                    INSERT INTO runic_logs(profile_id, log_id, found_at, decrypted_at)
-                    VALUES (?, ?, ?, ?)
-                    """,
-                    (pid, log_id, rl.foundAt, rl.decryptedAt),
-                )
             for case_id, cr in p.caseResults.items():
                 conn.execute(
                     """

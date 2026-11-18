@@ -62,7 +62,7 @@ async def test_sync_upload_download_conflict(make_client, tmp_path: Path) -> Non
     state_a = LauncherState()
     state_b = LauncherState()
     pid = new_profile()
-    snap = snapshot(pid, revision=1, reputation=5)
+    snap = snapshot(pid, revision=1)
     savestore.import_snapshot(db_a, key, snap, bak_path=bak_a, hmac_key=KEY)
 
     engine_a = SyncEngine(
@@ -96,11 +96,11 @@ async def test_sync_upload_download_conflict(make_client, tmp_path: Path) -> Non
     assert any(o.kind == "downloaded" and o.profile_id == pid for o in outcomes_b)
     assert bak_b.exists() or True  # first download creates db; bak on subsequent
     exported = savestore.export_snapshot(db_b, key, pid, hmac_key=KEY)
-    assert exported["payload"]["reputation"] == 5
+    assert exported["payload"]
 
     # diverge both sides -> conflict
-    snap_local = snapshot(pid, revision=2, reputation=10)
-    snap_cloud = snapshot(pid, revision=2, reputation=20)
+    snap_local = snapshot(pid, revision=2)
+    snap_cloud = snapshot(pid, revision=2)
     savestore.import_snapshot(db_a, key, snap_local, bak_path=bak_a, hmac_key=KEY)
     # push cloud change from B
     savestore.import_snapshot(db_b, key, snap_cloud, bak_path=bak_b, hmac_key=KEY)

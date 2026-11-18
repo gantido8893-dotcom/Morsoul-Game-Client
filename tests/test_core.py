@@ -17,7 +17,7 @@ def test_seal_verify_roundtrip_and_tamper_detection():
     snap = snapshot(new_profile())
     assert integrity.verify(snap, KEY) == []
     bad = copy.deepcopy(snap)
-    bad["payload"]["reputation"] = 9999
+    bad["payload"]["displayName"] = "Tampered"
     assert integrity.verify(bad, KEY)  # hash no longer matches
     bad2 = copy.deepcopy(snap)
     bad2["playtime"] += 1

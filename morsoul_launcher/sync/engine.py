@@ -52,7 +52,6 @@ def _summary_from_snapshot(snap: dict) -> dict[str, Any]:
         "currentCaseID": p.get("currentCaseID"),
         "casesCompleted": len(cases),
         "runicLogs": found,
-        "reputation": p.get("reputation", 0),
         "ending": p.get("ending"),
         "playtime": snap.get("playtime", 0),
         "displayName": p.get("displayName"),

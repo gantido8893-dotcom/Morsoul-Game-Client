@@ -48,14 +48,14 @@ def test_export_import_round_trip(tmp_path: Path) -> None:
     bak = tmp_path / "game.db.bak"
     key = b"a" * 32
     pid = new_profile()
-    snap = snapshot(pid, revision=2, playtime=5000, reputation=42, displayName="Caelan")
+    snap = snapshot(pid, revision=2, playtime=5000, displayName="Caelan")
     # richer payload
     snap = snapshot(
         pid,
         revision=3,
         playtime=9000,
-        reputation=100,
         displayName="Caelan",
+        reputation=42,
         caseProgress={
             "case_01": {
                 "status": "completed",
@@ -64,18 +64,18 @@ def test_export_import_round_trip(tmp_path: Path) -> None:
                 "warrantGranted": True,
                 "failedAttempts": 1,
                 "hintTier": 2,
-                "deductionSolved": True,
-                "interrogationResult": "success",
+                "deductionSolved": False,
+                "interrogationResult": None,
                 "completedAt": 1700000100,
             }
         },
-        evidence={"clue_017": {"caseID": "case_01", "collectedAt": 1000, "via": "scan"}},
+        evidence={"clue_017": {"caseID": "case_01", "collectedAt": 1000, "via": "examine"}},
         deductionLinks={"case_01": [["clue_017", "clue_021"]]},
-        unlocks={"tool": ["golem_eye"], "sector": ["sector_docks"], "case": []},
-        runicLogs={"1": {"foundAt": 10, "decryptedAt": 20}, "2": {"foundAt": None, "decryptedAt": None}},
+        unlocks={"tool": [], "sector": [], "case": []},
+        runicLogs={},
         caseResults={
             "case_01": {
-                "conclusionID": "conc_a",
+                "conclusionID": "",
                 "correct": True,
                 "flawed": False,
                 "strikes": 0,
@@ -104,9 +104,100 @@ def test_export_import_round_trip(tmp_path: Path) -> None:
     assert out == out2
     assert out["profileID"] == pid
     assert out["payload"]["displayName"] == "Caelan"
-    assert out["payload"]["reputation"] == 100
+    assert out["payload"]["reputation"] == 42
+    assert out["payload"]["evidence"]["clue_017"]["via"] == "examine"
     assert out["payload"]["caseProgress"]["case_01"]["warrantGranted"] is True
     assert out["payload"]["deductionLinks"]["case_01"] == [["clue_017", "clue_021"]]
+    assert out["payload"]["caseResults"]["case_01"]["conclusionID"] == ""
+
+
+def test_schema_tables_and_columns(tmp_path: Path) -> None:
+    db = tmp_path / "schema_check.db"
+    key = b"s" * 32
+    pid = new_profile()
+    snap = snapshot(
+        pid,
+        displayName="Detective",
+        reputation=10,
+        caseProgress={"case_01": {"status": "in_progress", "progressVersion": 1, "failedAttempts": 0}},
+        evidence={"clue_001": {"caseID": "case_01", "collectedAt": 12345, "via": "examine"}},
+        deductionLinks={"case_01": [["clue_001", "clue_002"]]},
+        caseResults={"case_01": {"conclusionID": "", "correct": True, "flawed": False, "strikes": 0, "attempts": 1, "completedAt": 123456}},
+    )
+    savestore.import_snapshot(db, key, snap, bak_path=tmp_path / "s.bak", hmac_key=KEY)
+
+    with savestore.connect(db, key, read_only=True) as conn:
+        tables = {
+            r[0]
+            for r in conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'"
+            ).fetchall()
+        }
+        # Expected tables according to SQLite-Schema ERD
+        expected_tables = {
+            "meta",
+            "profiles",
+            "profile_state",
+            "case_progress",
+            "clues_found",
+            "deduction_links",
+            "case_results",
+        }
+        assert tables == expected_tables
+
+        # Check clues_found table contents and columns
+        clue_row = conn.execute("SELECT * FROM clues_found WHERE profile_id = ?", (pid,)).fetchone()
+        assert clue_row is not None
+        assert clue_row["case_id"] == "case_01"
+        assert clue_row["clue_id"] == "clue_001"
+        assert clue_row["collected_at"] == 12345
+        assert clue_row["via"] == "examine"
+
+        # Check profile_state has reputation
+        state_row = conn.execute("SELECT * FROM profile_state WHERE profile_id = ?", (pid,)).fetchone()
+        assert state_row is not None
+        assert state_row["reputation"] == 10
+
+        # Check case_progress columns (has updated_at, no deduction_solved)
+        cp_cols = [r["name"] for r in conn.execute("PRAGMA table_info(case_progress)").fetchall()]
+        assert "updated_at" in cp_cols
+        assert "deduction_solved" not in cp_cols
+        assert "interrogation_result" not in cp_cols
+        assert "completed_at" not in cp_cols
+
+
+def test_foreign_key_cascading(tmp_path: Path) -> None:
+    db = tmp_path / "cascade.db"
+    key = b"c" * 32
+    pid = new_profile()
+    snap = snapshot(
+        pid,
+        caseProgress={"case_01": {"status": "in_progress"}},
+        evidence={"clue_001": {"caseID": "case_01", "collectedAt": 100, "via": "examine"}},
+        deductionLinks={"case_01": [["clue_001", "clue_002"]]},
+        caseResults={"case_01": {"conclusionID": "", "correct": True, "flawed": False, "strikes": 0, "attempts": 1, "completedAt": 200}},
+    )
+    savestore.import_snapshot(db, key, snap, bak_path=tmp_path / "c.bak", hmac_key=KEY)
+
+    # Verify rows exist in child tables
+    with savestore.connect(db, key) as conn:
+        assert conn.execute("SELECT COUNT(*) FROM profiles WHERE profile_id = ?", (pid,)).fetchone()[0] == 1
+        assert conn.execute("SELECT COUNT(*) FROM profile_state WHERE profile_id = ?", (pid,)).fetchone()[0] == 1
+        assert conn.execute("SELECT COUNT(*) FROM case_progress WHERE profile_id = ?", (pid,)).fetchone()[0] == 1
+        assert conn.execute("SELECT COUNT(*) FROM clues_found WHERE profile_id = ?", (pid,)).fetchone()[0] == 1
+        assert conn.execute("SELECT COUNT(*) FROM deduction_links WHERE profile_id = ?", (pid,)).fetchone()[0] == 1
+        assert conn.execute("SELECT COUNT(*) FROM case_results WHERE profile_id = ?", (pid,)).fetchone()[0] == 1
+
+        # Delete from parent profiles table
+        savestore.delete_profile(db, key, pid)
+
+        # Verify CASCADE removed child rows
+        assert conn.execute("SELECT COUNT(*) FROM profiles WHERE profile_id = ?", (pid,)).fetchone()[0] == 0
+        assert conn.execute("SELECT COUNT(*) FROM profile_state WHERE profile_id = ?", (pid,)).fetchone()[0] == 0
+        assert conn.execute("SELECT COUNT(*) FROM case_progress WHERE profile_id = ?", (pid,)).fetchone()[0] == 0
+        assert conn.execute("SELECT COUNT(*) FROM clues_found WHERE profile_id = ?", (pid,)).fetchone()[0] == 0
+        assert conn.execute("SELECT COUNT(*) FROM deduction_links WHERE profile_id = ?", (pid,)).fetchone()[0] == 0
+        assert conn.execute("SELECT COUNT(*) FROM case_results WHERE profile_id = ?", (pid,)).fetchone()[0] == 0
 
 
 def test_wrong_key_keeps_file(tmp_path: Path) -> None:

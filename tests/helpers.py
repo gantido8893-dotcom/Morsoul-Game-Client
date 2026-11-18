@@ -25,7 +25,7 @@ async def register(client, username: str, password: str = PASSWORD, email: str |
 def base_payload(**over) -> dict:
     p = {
         "displayName": "Caelan",
-        "reputation": 10,
+        "reputation": 0,
         "currentCaseID": "case_01",
         "ending": None,
         "focusEnergy": {"value": 3.0, "asOfPlaytime": 100},

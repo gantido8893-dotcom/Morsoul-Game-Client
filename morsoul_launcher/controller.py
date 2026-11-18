@@ -49,17 +49,6 @@ class Result:
     code: str | None = None
 
 
-def _rank_for(reputation: int, ranks: list[dict[str, Any]] | None) -> str:
-    if not ranks:
-        return ""
-    ordered = sorted(ranks, key=lambda r: int(r.get("minReputation", 0)))
-    current = ordered[0].get("rank", "") if ordered else ""
-    for row in ordered:
-        if reputation >= int(row.get("minReputation", 0)):
-            current = str(row.get("rank", current))
-    return str(current)
-
-
 class LauncherController:
     def __init__(
         self,
@@ -434,8 +423,6 @@ class LauncherController:
                         current_case_id=row.get("current_case_id"),
                         cases_completed=int(row.get("cases_completed") or 0),
                         runic_logs=int(row.get("runic_logs") or 0),
-                        reputation=int(row.get("reputation") or 0),
-                        rank=_rank_for(int(row.get("reputation") or 0), self._ranks),
                         playtime=int(row.get("playtime") or 0),
                         last_played=row.get("updated_at"),
                         sync_state=SyncState.LOCAL_ONLY,
@@ -466,8 +453,6 @@ class LauncherController:
                                 current_case_id=s.get("currentCaseID"),
                                 cases_completed=int(s.get("casesCompleted") or 0),
                                 runic_logs=int(s.get("runicLogs") or 0),
-                                reputation=int(s.get("reputation") or 0),
-                                rank=_rank_for(int(s.get("reputation") or 0), self._ranks),
                                 playtime=int(s.get("playtime") or 0),
                                 sync_state=SyncState.CLOUD_ONLY,
                                 cloud_summary=s,

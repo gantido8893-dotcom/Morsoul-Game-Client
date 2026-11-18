@@ -32,7 +32,7 @@ class FocusEnergy(Strict):
 
 
 class CaseProgress(Strict):
-    status: Literal["locked", "available", "in_progress", "completed"]
+    status: Literal["locked", "available", "in_progress", "completed", "unstarted", "failed"]
     progressVersion: int = Field(1, ge=1)
     objectiveID: ContentID | None = None
     warrantGranted: bool = False
@@ -41,12 +41,13 @@ class CaseProgress(Strict):
     deductionSolved: bool = False
     interrogationResult: Literal["success", "flawed"] | None = None
     completedAt: UnixSeconds | None = None
+    updatedAt: UnixSeconds | None = None
 
 
 class EvidenceItem(Strict):
     caseID: ContentID
     collectedAt: UnixSeconds
-    via: Literal["scan", "dialogue", "hint", "puzzle", "reward"]
+    via: Literal["scan", "dialogue", "hint", "puzzle", "reward", "examine", "search"]
 
 
 class Unlocks(Strict):
@@ -61,7 +62,7 @@ class RunicLog(Strict):
 
 
 class CaseResult(Strict):
-    conclusionID: ContentID
+    conclusionID: str = Field(default="", max_length=64)
     correct: bool
     flawed: bool
     strikes: int = Field(0, ge=0, le=10)
@@ -103,7 +104,7 @@ class Note(Strict):
 
 class Payload(Strict):
     displayName: Annotated[str, StringConstraints(pattern=r"^[\w \-]{1,20}$")]
-    reputation: int = Field(ge=-100_000, le=100_000)
+    reputation: int = Field(0, ge=0)
     currentCaseID: ContentID | None
     ending: Literal["bad", "normal", "true"] | None
     focusEnergy: FocusEnergy

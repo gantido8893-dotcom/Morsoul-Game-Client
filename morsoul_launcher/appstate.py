@@ -67,7 +67,6 @@ class ProfileView:
     current_case_id: str | None = None
     cases_completed: int = 0
     runic_logs: int = 0
-    reputation: int = 0
     rank: str = ""
     playtime: int = 0
     last_played: int | None = None

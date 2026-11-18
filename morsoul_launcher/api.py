@@ -79,7 +79,6 @@ class SaveSummary(BaseModel):
     currentCaseID: str | None = None
     casesCompleted: int = 0
     runicLogs: int = 0
-    reputation: int = 0
     ending: str | None = None
     playtime: int = 0
 
