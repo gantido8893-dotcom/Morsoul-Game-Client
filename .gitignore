@@ -1,0 +1,27 @@
+# Python
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+
+# Testing and Linters
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# PyInstaller Build Output
+build/
+dist/
+
+# Local Environment & Secrets
+.env
+
+# Local Game Data & Backups
+*.db
+*.db.bak
+*.log
+launcher-state.json
+game.lock
+
+# Updates cache
+updates/
