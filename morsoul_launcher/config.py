@@ -11,7 +11,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class LauncherSettings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", extra="ignore", populate_by_name=True)
+    model_config = SettingsConfigDict(env_file=".env.client", extra="ignore", populate_by_name=True)
 
     server_config_url: str | None = Field(None, validation_alias="SERVER_CONFIG_URL")
     default_server_url: str = Field("http://127.0.0.1:8080", validation_alias="DEFAULT_SERVER_URL")
@@ -48,9 +48,13 @@ def load_settings(**over) -> LauncherSettings:
     if "_env_file" not in over:
         candidates = [
             Path.cwd() / ".env",
+            Path.cwd() / ".env.client",
             Path(sys.executable).parent / ".env",
+            Path(sys.executable).parent / ".env.client",
             Path(getattr(sys, "_MEIPASS", "")) / ".env" if hasattr(sys, "_MEIPASS") else None,
+            Path(getattr(sys, "_MEIPASS", "")) / ".env.client" if hasattr(sys, "_MEIPASS") else None,
             Path(__file__).resolve().parents[1] / ".env",
+            Path(__file__).resolve().parents[1] / ".env.client",
         ]
         for candidate in candidates:
             if candidate and candidate.is_file():
@@ -81,4 +85,16 @@ def load_settings(**over) -> LauncherSettings:
         return LauncherSettings(**over)  # type: ignore[call-arg]
     except Exception as exc:
         print(f"Launcher configuration error: {exc}", file=sys.stderr)
+        if sys.platform == "win32":
+            try:
+                import ctypes
+
+                ctypes.windll.user32.MessageBoxW(
+                    0,
+                    f"Configuration error:\n\n{exc}\n\nPlease check your .env or .env.client file.",
+                    "Morsoul Launcher Error",
+                    0x10,
+                )
+            except Exception:
+                pass
         raise SystemExit(2) from exc

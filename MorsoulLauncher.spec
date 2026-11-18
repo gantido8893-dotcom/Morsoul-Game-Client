@@ -14,6 +14,8 @@ datas = [
 ]
 if (ROOT / ".env").exists():
     datas.append((str(ROOT / ".env"), "."))
+if (ROOT / ".env.client").exists():
+    datas.append((str(ROOT / ".env.client"), "."))
 if (ROOT / "server.json").exists():
     datas.append((str(ROOT / "server.json"), "."))
 
