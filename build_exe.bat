@@ -5,9 +5,14 @@ echo   Building MorsoulLauncher.exe with PyInstaller
 echo ========================================================
 echo.
 
+if not exist ".venv\Scripts\python.exe" (
+    echo Creating virtual environment with Python 3.12...
+    uv venv --python 3.12 .venv
+)
+
 if not exist ".venv\Scripts\pyinstaller.exe" (
-    echo PyInstaller not found in .venv. Installing...
-    uv pip install pyinstaller
+    echo Installing dependencies and PyInstaller in .venv...
+    uv pip install -e . pyinstaller
 )
 
 .\.venv\Scripts\pyinstaller.exe MorsoulLauncher.spec --clean --noconfirm
