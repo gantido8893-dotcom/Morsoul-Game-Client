@@ -1,3 +1,3 @@
 {
-  "serverURL": "https://adaptor-balloon-coordinate-rides.trycloudflare.com"
+  "serverURL": "http://127.0.0.1:8080"
 }
