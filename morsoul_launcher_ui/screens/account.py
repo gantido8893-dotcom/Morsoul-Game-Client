@@ -1249,10 +1249,10 @@ class AccountOverlay(QWidget):
         lay2.addSpacing(4)
 
         credits_body = QLabel(
-            "Developed by Morsoul Studio.\n"
-            "Game Design & Narrative: Agartha Guild\n"
-            "Artwork & Concept: Arthur Conan Doyle Archive Team\n"
-            "Audio & Atmosphere: Deep Echoes Soundtrack Studio"
+            "Developed by Tombois and Badbois.\n"
+            "Game Design & Narrative: Wade Honrado\n"
+            "Artwork & Concept: Tombois and Badbois\n"
+            "Audio & Atmosphere: Unity"
         )
         credits_body.setStyleSheet(
             f"color: #D0D0D0; font-size: 12px; font-weight: 400; line-height: 1.4; background: transparent; border: none; font-family: {fonts};"
