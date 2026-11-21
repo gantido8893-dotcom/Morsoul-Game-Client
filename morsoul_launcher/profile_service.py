@@ -90,12 +90,12 @@ def format_playtime(seconds: int | float | None) -> str:
 def format_relative_time(val: int | float | str | datetime | None) -> str:
     """Format a past timestamp or ISO date into e.g. '20 mins', '24hrs ago', etc."""
     if val is None:
-        return "20 mins"
+        return "just now"
 
     dt: datetime
     if isinstance(val, (int, float)):
         if val <= 0:
-            return "20 mins"
+            return "just now"
         dt = datetime.fromtimestamp(val, tz=UTC)
     elif isinstance(val, str):
         try:
@@ -105,7 +105,7 @@ def format_relative_time(val: int | float | str | datetime | None) -> str:
     elif isinstance(val, datetime):
         dt = val if val.tzinfo is not None else val.replace(tzinfo=UTC)
     else:
-        return "20 mins"
+        return "just now"
 
     now = datetime.now(UTC)
     diff = now - dt
@@ -209,7 +209,7 @@ def fetch_profile_display_data(
         primary_local = local_rows[0]
 
     # Progress stats
-    profile_name = "Ibn Al-haytham"
+    profile_name = "Player"
     playtime_sec = 0
     cases_completed = 0
     runic_logs_found = 0
@@ -226,7 +226,7 @@ def fetch_profile_display_data(
             has_progress = True
 
     if primary_view is not None:
-        if primary_view.display_name and primary_view.display_name != "Player":
+        if primary_view.display_name:
             profile_name = primary_view.display_name
         if primary_view.playtime > 0:
             playtime_sec = primary_view.playtime
@@ -265,12 +265,10 @@ def fetch_profile_display_data(
 
     if has_synced_progress:
         display_profile_name = profile_name
-        display_playtime = format_playtime(playtime_sec) if playtime_sec > 0 else "12 Hrs 3 mins"
-        display_cases = f"{cases_completed}/{TOTAL_CASES}" if cases_completed > 0 else f"2/{TOTAL_CASES}"
-        display_runic = (
-            f"{runic_logs_found}/{TOTAL_RUNIC_LOGS}" if runic_logs_found > 0 else f"2/{TOTAL_RUNIC_LOGS}"
-        )
-        sync_ago = format_relative_time(last_synced_time) if last_synced_time else "20 mins"
+        display_playtime = format_playtime(playtime_sec)
+        display_cases = f"{cases_completed}/{TOTAL_CASES}"
+        display_runic = f"{runic_logs_found}/{TOTAL_RUNIC_LOGS}"
+        sync_ago = format_relative_time(last_synced_time) if last_synced_time else "just now"
         display_last_synced = f"Last Synced {sync_ago}"
     else:
         # Frame 5 layout: placeholders when no synced progress

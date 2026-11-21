@@ -350,6 +350,7 @@ class MainWindow(QMainWindow):
         if state.auth.kind != AuthKind.SIGNED_IN:
             self.toast.show_error("Sign in to sync your progress.")
             return
+        self.toast.start_sync_toast()
         self.bridge.call_async("sync_profile", profile_id)
 
     def _on_bottom_chip_clicked(self) -> None:
@@ -620,7 +621,25 @@ class MainWindow(QMainWindow):
                 self.toast.show_error(result.message)
 
         if name in {"sync_all", "sync_profile"}:
-            self.toast.finish_sync_toast()
+            self.toast.stop_sync_ticker()
+            outcomes: list[Any] = result if isinstance(result, list) else ([result] if result is not None else [])
+            skipped_reasons = {getattr(o, "reason", None) for o in outcomes if getattr(o, "kind", None) == "skipped"}
+
+            if "offline" in skipped_reasons or "server_error" in skipped_reasons:
+                self.toast.show_error("Sync failed: Server is offline")
+            elif "not_logged_in" in skipped_reasons:
+                self.toast.show_error("Sign in to sync your progress.")
+            elif "game_running" in skipped_reasons:
+                self.toast.show_error("Cannot sync while game is running")
+            elif "key_unavailable" in skipped_reasons:
+                self.toast.show_error("Database key is unavailable")
+            elif any(getattr(o, "kind", None) in {"uploaded", "downloaded"} for o in outcomes):
+                self.toast.show_info("Profile progress synced!")
+                self.bridge.call_async("refresh_profiles")
+            elif any(getattr(o, "kind", None) == "conflict" for o in outcomes):
+                self.toast.show_info("Sync conflict detected")
+            else:
+                self.toast.show_info("App is up to date!")
 
         if name == "delete_cloud_profile" and isinstance(result, Result):
             if result.ok:
