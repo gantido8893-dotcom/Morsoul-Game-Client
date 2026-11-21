@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import os
 
-from PySide6.QtCore import QSize, Qt, Signal
+from PySide6.QtCore import QSize, Qt, QTimer, Signal
 from PySide6.QtGui import QIcon, QPixmap
 from PySide6.QtWidgets import (
     QCheckBox,
@@ -1463,10 +1463,31 @@ class AccountOverlay(QWidget):
     def set_message(self, text: str, ok: bool = False) -> None:
         self.msg_label.setStyleSheet("color: #5BB85D;" if ok else "color: #FF6B6B;")
         self.msg_label.setText(text)
+        if ok:
+            self.current_pw.clear()
+            self.new_pw.clear()
+            self.new_pw2.clear()
+        if hasattr(self, "_msg_timer") and self._msg_timer is not None:
+            self._msg_timer.stop()
+        if text:
+            self._msg_timer = QTimer(self)
+            self._msg_timer.setSingleShot(True)
+            self._msg_timer.timeout.connect(lambda: self.msg_label.setText(""))
+            self._msg_timer.start(5000)
 
     def set_email_message(self, text: str, ok: bool = False) -> None:
         self.email_msg_label.setStyleSheet("color: #5BB85D;" if ok else "color: #FF6B6B;")
         self.email_msg_label.setText(text)
+        if ok:
+            self.new_email_input.clear()
+            self.email_pw_input.clear()
+        if hasattr(self, "_email_msg_timer") and self._email_msg_timer is not None:
+            self._email_msg_timer.stop()
+        if text:
+            self._email_msg_timer = QTimer(self)
+            self._email_msg_timer.setSingleShot(True)
+            self._email_msg_timer.timeout.connect(lambda: self.email_msg_label.setText(""))
+            self._email_msg_timer.start(5000)
 
     # ── Geometry layout ───────────────────────────────────────────────────────
 

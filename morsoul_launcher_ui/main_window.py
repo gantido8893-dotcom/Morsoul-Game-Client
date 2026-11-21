@@ -604,9 +604,10 @@ class MainWindow(QMainWindow):
                 self._show_auth()
 
         if name == "change_password" and isinstance(result, Result):
-            self.account.set_message(result.message, ok=result.ok)
+            msg = "Password changed" if result.ok else result.message
+            self.account.set_message(msg, ok=result.ok)
             if result.ok:
-                self.toast.show_success("Password changed!")
+                self.toast.show_success("Password changed")
             else:
                 self.toast.show_error(result.message)
 
