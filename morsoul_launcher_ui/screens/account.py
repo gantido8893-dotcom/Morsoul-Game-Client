@@ -60,6 +60,7 @@ class AccountOverlay(QWidget):
     """Full-screen user account and profile interface matching Frame 3 & Frame 5."""
 
     change_password = Signal(str, str)
+    change_email = Signal(str, str)  # password, new_email
     sign_out = Signal()
     sign_out_all = Signal()
     request_sign_out_all = Signal()
@@ -784,34 +785,18 @@ class AccountOverlay(QWidget):
         sp_layout.setContentsMargins(0, 0, 0, 0)
         sp_layout.setSpacing(18)
 
-        # ── Card 1: Password & Security (410 x 365) ──────────────────────────
-        self.privacy_sec_card = QFrame()
-        self.privacy_sec_card.setObjectName("accPrivacySecCard")
-        self.privacy_sec_card.setFixedSize(410, 365)
-        self.privacy_sec_card.setStyleSheet(card_style)
-
-        lay1 = QVBoxLayout(self.privacy_sec_card)
-        lay1.setContentsMargins(28, 24, 28, 24)
-        lay1.setSpacing(0)
-
-        sec_title = QLabel("Password & Security")
-        sec_title.setStyleSheet(
-            f"color: {_GOLD}; font-size: 15px; font-weight: 600; background: transparent; border: none; font-family: {fonts};"
-        )
-        lay1.addWidget(sec_title)
-        lay1.addSpacing(14)
-
+        # ── Shared styles ─────────────────────────────────────────────────────
         input_style = f"""
             QLineEdit {{
                 background: rgba(30, 30, 32, 0.75);
                 border: 1px solid rgba(255, 255, 255, 0.14);
-                border-radius: 6px;
-                padding: 0 10px;
+                border-radius: 8px;
+                padding: 0 12px;
                 color: #FFFFFF;
                 font-size: 12px;
                 font-weight: 400;
-                min-height: 30px;
-                max-height: 30px;
+                min-height: 34px;
+                max-height: 34px;
                 font-family: {fonts};
             }}
             QLineEdit:focus {{
@@ -819,171 +804,327 @@ class AccountOverlay(QWidget):
             }}
         """
 
-        self.current_pw = QLineEdit()
-        self.current_pw.setEchoMode(QLineEdit.EchoMode.Password)
-        self.current_pw.setPlaceholderText("Current Password")
-        self.current_pw.setStyleSheet(input_style)
-        lay1.addWidget(self.current_pw)
-        lay1.addSpacing(8)
+        section_title_style = (
+            f"color: {_WHITE}; font-size: 13px; font-weight: 600;"
+            f" background: transparent; border: none; font-family: {fonts};"
+        )
 
-        # New & confirm password
-        pw_row = QHBoxLayout()
-        pw_row.setSpacing(8)
+        hint_style = (
+            f"color: {_TEXT_SUBTLE}; font-size: 11px; font-weight: 400;"
+            f" background: transparent; border: none; font-family: {fonts};"
+        )
 
-        self.new_pw = QLineEdit()
-        self.new_pw.setEchoMode(QLineEdit.EchoMode.Password)
-        self.new_pw.setPlaceholderText("New Password")
-        self.new_pw.setStyleSheet(input_style)
-        pw_row.addWidget(self.new_pw)
-
-        self.new_pw2 = QLineEdit()
-        self.new_pw2.setEchoMode(QLineEdit.EchoMode.Password)
-        self.new_pw2.setPlaceholderText("Confirm Password")
-        self.new_pw2.setStyleSheet(input_style)
-        pw_row.addWidget(self.new_pw2)
-        lay1.addLayout(pw_row)
-        lay1.addSpacing(8)
-
-        # Update button row
-        upd_row = QHBoxLayout()
-        upd_row.addStretch()
-
-        change_btn = QPushButton("Update Password")
-        change_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        change_btn.setFixedHeight(30)
-        change_btn.setStyleSheet(f"""
+        btn_accent_style = f"""
             QPushButton {{
                 background-color: {_GOLD};
                 color: #1A1600;
                 font-weight: 600;
                 font-size: 12px;
-                border-radius: 6px;
-                padding: 0 16px;
+                border-radius: 8px;
+                padding: 0 18px;
+                min-height: 32px;
                 border: none;
                 font-family: {fonts};
             }}
             QPushButton:hover {{
                 background-color: #E0BA58;
             }}
-        """)
-        change_btn.clicked.connect(self._change_password)
-        upd_row.addWidget(change_btn)
-        lay1.addLayout(upd_row)
-        lay1.addSpacing(4)
-
-        self.msg_label = QLabel("")
-        self.msg_label.setStyleSheet(
-            f"color: #FF6B6B; font-size: 11px; font-weight: 400; background: transparent; border: none; font-family: {fonts};"
-        )
-        lay1.addWidget(self.msg_label)
-
-        lay1.addSpacing(14)
-
-        # Account Data & Sessions header
-        lbl_acc_data = QLabel("Account Data & Sessions")
-        lbl_acc_data.setStyleSheet(
-            f"color: {_TEXT_MUTED}; font-size: 12px; font-weight: 500; background: transparent; border: none; font-family: {fonts};"
-        )
-        lay1.addWidget(lbl_acc_data)
-        lay1.addSpacing(8)
-
-        btn_style = f"""
-            QPushButton {{
-                background-color: rgba(255, 255, 255, 0.08);
-                border: 1px solid rgba(255, 255, 255, 0.16);
-                border-radius: 6px;
-                color: #FFFFFF;
-                font-size: 12px;
-                font-weight: 500;
-                padding: 0 14px;
-                font-family: {fonts};
-            }}
-            QPushButton:hover {{
-                background-color: rgba(255, 255, 255, 0.15);
+            QPushButton:pressed {{
+                background-color: #A88930;
             }}
         """
 
-        data_row = QHBoxLayout()
-        data_row.setSpacing(8)
+        btn_outline_style = f"""
+            QPushButton {{
+                background-color: rgba(255, 255, 255, 0.06);
+                border: 1px solid rgba(255, 255, 255, 0.14);
+                border-radius: 8px;
+                color: #D0D0D0;
+                font-size: 12px;
+                font-weight: 500;
+                padding: 0 16px;
+                min-height: 32px;
+                font-family: {fonts};
+            }}
+            QPushButton:hover {{
+                background-color: rgba(255, 255, 255, 0.12);
+                border-color: rgba(255, 255, 255, 0.25);
+                color: #FFFFFF;
+            }}
+            QPushButton:pressed {{
+                background-color: rgba(255, 255, 255, 0.04);
+            }}
+        """
 
-        dl_btn = QPushButton("Download My Data")
-        dl_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        dl_btn.setFixedHeight(32)
-        dl_btn.setStyleSheet(btn_style)
-        dl_btn.clicked.connect(self.download_data.emit)
-        data_row.addWidget(dl_btn)
+        separator_style = (
+            "background-color: rgba(255, 255, 255, 0.07);"
+            " min-height: 1px; max-height: 1px; border: none;"
+        )
 
-        out_all = QPushButton("Sign Out All Devices")
-        out_all.setCursor(Qt.CursorShape.PointingHandCursor)
-        out_all.setFixedHeight(32)
-        out_all.setStyleSheet(btn_style)
-        out_all.clicked.connect(self._prompt_sign_out_all)
-        data_row.addWidget(out_all)
+        # ── Card 1: Password & Security (410 x 365) ──────────────────────────
+        self.privacy_sec_card = QFrame()
+        self.privacy_sec_card.setObjectName("accPrivacySecCard")
+        self.privacy_sec_card.setFixedSize(410, 365)
+        self.privacy_sec_card.setStyleSheet(card_style)
 
-        lay1.addLayout(data_row)
+        lay1 = QVBoxLayout(self.privacy_sec_card)
+        lay1.setContentsMargins(24, 20, 24, 20)
+        lay1.setSpacing(0)
+
+        # Card header
+        sec_title = QLabel("Password & Security")
+        sec_title.setStyleSheet(
+            f"color: {_GOLD}; font-size: 15px; font-weight: 600;"
+            f" background: transparent; border: none; font-family: {fonts};"
+        )
+        lay1.addWidget(sec_title)
+        lay1.addSpacing(4)
+
+        sec_desc = QLabel("Manage your password and account email address.")
+        sec_desc.setStyleSheet(hint_style)
+        sec_desc.setWordWrap(True)
+        lay1.addWidget(sec_desc)
+        lay1.addSpacing(12)
+
+        # ── Section: Change Password ──────────────────────────────────────────
+        pw_section_lbl = QLabel("Change Password")
+        pw_section_lbl.setStyleSheet(section_title_style)
+        lay1.addWidget(pw_section_lbl)
+        lay1.addSpacing(6)
+
+        self.current_pw = QLineEdit()
+        self.current_pw.setEchoMode(QLineEdit.EchoMode.Password)
+        self.current_pw.setPlaceholderText("Current password")
+        self.current_pw.setStyleSheet(input_style)
+        lay1.addWidget(self.current_pw)
+        lay1.addSpacing(6)
+
+        # New & confirm password side by side
+        pw_row = QHBoxLayout()
+        pw_row.setSpacing(8)
+
+        self.new_pw = QLineEdit()
+        self.new_pw.setEchoMode(QLineEdit.EchoMode.Password)
+        self.new_pw.setPlaceholderText("New password")
+        self.new_pw.setStyleSheet(input_style)
+        pw_row.addWidget(self.new_pw)
+
+        self.new_pw2 = QLineEdit()
+        self.new_pw2.setEchoMode(QLineEdit.EchoMode.Password)
+        self.new_pw2.setPlaceholderText("Confirm password")
+        self.new_pw2.setStyleSheet(input_style)
+        pw_row.addWidget(self.new_pw2)
+        lay1.addLayout(pw_row)
+        lay1.addSpacing(8)
+
+        # Update button + message row
+        pw_btn_row = QHBoxLayout()
+        pw_btn_row.setSpacing(8)
+
+        self.msg_label = QLabel("")
+        self.msg_label.setStyleSheet(
+            f"color: #FF6B6B; font-size: 11px; font-weight: 400;"
+            f" background: transparent; border: none; font-family: {fonts};"
+        )
+        pw_btn_row.addWidget(self.msg_label, stretch=1)
+
+        change_btn = QPushButton("Update Password")
+        change_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        change_btn.setStyleSheet(btn_accent_style)
+        change_btn.clicked.connect(self._change_password)
+        pw_btn_row.addWidget(change_btn)
+        lay1.addLayout(pw_btn_row)
+        lay1.addSpacing(10)
+
+        # ── Separator ─────────────────────────────────────────────────────────
+        sep1 = QFrame()
+        sep1.setStyleSheet(separator_style)
+        lay1.addWidget(sep1)
+        lay1.addSpacing(10)
+
+        # ── Section: Change Email ─────────────────────────────────────────────
+        email_section_lbl = QLabel("Update Email Address")
+        email_section_lbl.setStyleSheet(section_title_style)
+        lay1.addWidget(email_section_lbl)
+        lay1.addSpacing(6)
+
+        email_row = QHBoxLayout()
+        email_row.setSpacing(8)
+
+        self.new_email_input = QLineEdit()
+        self.new_email_input.setPlaceholderText("New email address")
+        self.new_email_input.setStyleSheet(input_style)
+        email_row.addWidget(self.new_email_input, stretch=1)
+
+        self.email_pw_input = QLineEdit()
+        self.email_pw_input.setEchoMode(QLineEdit.EchoMode.Password)
+        self.email_pw_input.setPlaceholderText("Password")
+        self.email_pw_input.setStyleSheet(input_style)
+        self.email_pw_input.setFixedWidth(130)
+        email_row.addWidget(self.email_pw_input)
+        lay1.addLayout(email_row)
+        lay1.addSpacing(8)
+
+        email_btn_row = QHBoxLayout()
+        email_btn_row.setSpacing(8)
+
+        self.email_msg_label = QLabel("")
+        self.email_msg_label.setStyleSheet(
+            f"color: #FF6B6B; font-size: 11px; font-weight: 400;"
+            f" background: transparent; border: none; font-family: {fonts};"
+        )
+        email_btn_row.addWidget(self.email_msg_label, stretch=1)
+
+        email_save_btn = QPushButton("Update Email")
+        email_save_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        email_save_btn.setStyleSheet(btn_accent_style)
+        email_save_btn.clicked.connect(self._change_email)
+        email_btn_row.addWidget(email_save_btn)
+        lay1.addLayout(email_btn_row)
+
         lay1.addStretch()
 
-        # ── Card 2: Cloud Saves Management & Danger Zone (440 x 365) ─────────
+        # ── Card 2: Account Actions & Danger Zone (440 x 365) ────────────────
         self.privacy_cloud_card = QFrame()
         self.privacy_cloud_card.setObjectName("accPrivacyCloudCard")
         self.privacy_cloud_card.setFixedSize(440, 365)
         self.privacy_cloud_card.setStyleSheet(card_style)
 
         lay2 = QVBoxLayout(self.privacy_cloud_card)
-        lay2.setContentsMargins(28, 24, 28, 24)
+        lay2.setContentsMargins(24, 20, 24, 20)
         lay2.setSpacing(0)
 
+        # ── Cloud Saves Management ────────────────────────────────────────────
         cloud_lbl = QLabel("Cloud Saves Management")
         cloud_lbl.setStyleSheet(
-            f"color: {_GOLD}; font-size: 15px; font-weight: 600; background: transparent; border: none; font-family: {fonts};"
+            f"color: {_GOLD}; font-size: 15px; font-weight: 600;"
+            f" background: transparent; border: none; font-family: {fonts};"
         )
         lay2.addWidget(cloud_lbl)
-        lay2.addSpacing(14)
+        lay2.addSpacing(4)
+
+        cloud_desc = QLabel("Manage synced cloud save profiles and local data exports.")
+        cloud_desc.setStyleSheet(hint_style)
+        cloud_desc.setWordWrap(True)
+        lay2.addWidget(cloud_desc)
+        lay2.addSpacing(12)
 
         self.cloud_profiles_container = QVBoxLayout()
         self.cloud_profiles_container.setSpacing(6)
         lay2.addLayout(self.cloud_profiles_container)
 
+        lay2.addSpacing(12)
+
+        # ── Separator ─────────────────────────────────────────────────────────
+        sep2 = QFrame()
+        sep2.setStyleSheet(separator_style)
+        lay2.addWidget(sep2)
+        lay2.addSpacing(12)
+
+        # ── Account Data & Sessions ───────────────────────────────────────────
+        data_section_lbl = QLabel("Account Data & Sessions")
+        data_section_lbl.setStyleSheet(section_title_style)
+        lay2.addWidget(data_section_lbl)
+        lay2.addSpacing(4)
+
+        data_desc = QLabel(
+            "Export a copy of your account data or sign out from all active sessions on other devices."
+        )
+        data_desc.setStyleSheet(hint_style)
+        data_desc.setWordWrap(True)
+        lay2.addWidget(data_desc)
+        lay2.addSpacing(8)
+
+        data_row = QHBoxLayout()
+        data_row.setSpacing(8)
+
+        dl_btn = QPushButton("Download My Data")
+        dl_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        dl_btn.setStyleSheet(btn_outline_style)
+        dl_btn.clicked.connect(self.download_data.emit)
+        data_row.addWidget(dl_btn)
+
+        out_all = QPushButton("Sign Out All Devices")
+        out_all.setCursor(Qt.CursorShape.PointingHandCursor)
+        out_all.setStyleSheet(btn_outline_style)
+        out_all.clicked.connect(self._prompt_sign_out_all)
+        data_row.addWidget(out_all)
+
+        data_row.addStretch()
+        lay2.addLayout(data_row)
+
         lay2.addStretch()
 
-        # Danger Zone: Delete Account
+        # ── Separator ─────────────────────────────────────────────────────────
+        sep3 = QFrame()
+        sep3.setStyleSheet(separator_style)
+        lay2.addWidget(sep3)
+        lay2.addSpacing(10)
+
+        # ── Danger Zone ───────────────────────────────────────────────────────
         danger_box = QFrame()
         danger_box.setStyleSheet("""
             QFrame {
-                background-color: rgba(224, 62, 62, 0.10);
-                border: 1px solid rgba(224, 62, 62, 0.25);
-                border-radius: 8px;
+                background-color: rgba(224, 62, 62, 0.08);
+                border: 1px solid rgba(224, 62, 62, 0.20);
+                border-radius: 10px;
             }
         """)
-        danger_lay = QHBoxLayout(danger_box)
-        danger_lay.setContentsMargins(14, 10, 14, 10)
+        danger_lay = QVBoxLayout(danger_box)
+        danger_lay.setContentsMargins(14, 12, 14, 12)
+        danger_lay.setSpacing(6)
 
-        danger_text = QLabel("Permanently delete account and all cloud saves:")
-        danger_text.setStyleSheet(
-            f"color: #FFB4B4; font-size: 12px; font-weight: 400; background: transparent; border: none; font-family: {fonts};"
+        danger_title_row = QHBoxLayout()
+        danger_title_row.setSpacing(0)
+
+        danger_title = QLabel("Danger Zone")
+        danger_title.setStyleSheet(
+            f"color: #FF8A8A; font-size: 13px; font-weight: 600;"
+            f" background: transparent; border: none; font-family: {fonts};"
         )
-        danger_lay.addWidget(danger_text, stretch=1)
+        danger_title_row.addWidget(danger_title)
+        danger_title_row.addStretch()
+        danger_lay.addLayout(danger_title_row)
+
+        danger_text = QLabel(
+            "Permanently delete your account and all associated cloud saves. "
+            "This action is irreversible."
+        )
+        danger_text.setWordWrap(True)
+        danger_text.setStyleSheet(
+            f"color: #C89898; font-size: 11px; font-weight: 400;"
+            f" background: transparent; border: none; font-family: {fonts};"
+        )
+        danger_lay.addWidget(danger_text)
+
+        del_btn_row = QHBoxLayout()
+        del_btn_row.addStretch()
 
         del_acc_btn = QPushButton("Delete Account")
         del_acc_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        del_acc_btn.setFixedHeight(30)
         del_acc_btn.setStyleSheet(f"""
             QPushButton {{
-                background-color: #E03E3E;
+                background-color: rgba(224, 62, 62, 0.85);
                 color: #FFFFFF;
                 font-size: 12px;
                 font-weight: 600;
-                border-radius: 6px;
+                border-radius: 8px;
                 border: none;
-                padding: 0 14px;
+                padding: 0 18px;
+                min-height: 30px;
                 font-family: {fonts};
             }}
             QPushButton:hover {{
                 background-color: #F04848;
             }}
+            QPushButton:pressed {{
+                background-color: #C53030;
+            }}
         """)
         del_acc_btn.clicked.connect(self._prompt_delete_account)
-        danger_lay.addWidget(del_acc_btn)
+        del_btn_row.addWidget(del_acc_btn)
+        danger_lay.addLayout(del_btn_row)
+
         lay2.addWidget(danger_box)
 
         sp_layout.addWidget(self.privacy_sec_card)
@@ -1203,6 +1344,17 @@ class AccountOverlay(QWidget):
             return
         self.change_password.emit(self.current_pw.text(), self.new_pw.text())
 
+    def _change_email(self) -> None:
+        email = self.new_email_input.text().strip()
+        pw = self.email_pw_input.text()
+        if not email:
+            self.set_email_message("Please enter a new email address", ok=False)
+            return
+        if not pw:
+            self.set_email_message("Password is required to change email", ok=False)
+            return
+        self.change_email.emit(pw, email)
+
     def _open_logs(self) -> None:
         path = data_dir() / "logs"
         path.mkdir(parents=True, exist_ok=True)
@@ -1311,6 +1463,10 @@ class AccountOverlay(QWidget):
     def set_message(self, text: str, ok: bool = False) -> None:
         self.msg_label.setStyleSheet("color: #5BB85D;" if ok else "color: #FF6B6B;")
         self.msg_label.setText(text)
+
+    def set_email_message(self, text: str, ok: bool = False) -> None:
+        self.email_msg_label.setStyleSheet("color: #5BB85D;" if ok else "color: #FF6B6B;")
+        self.email_msg_label.setText(text)
 
     # ── Geometry layout ───────────────────────────────────────────────────────
 

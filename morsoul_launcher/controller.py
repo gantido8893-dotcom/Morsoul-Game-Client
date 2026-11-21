@@ -324,6 +324,17 @@ class LauncherController:
         except ApiError as exc:
             return self._set_error(strings.friendly_error(exc.code), exc.code)
 
+    async def change_email(self, password: str, new_email: str) -> Result:
+        try:
+            await self.api.change_email(password, new_email)
+            self.state.auth.email = new_email
+            self._emit()
+            return Result(True, strings.EMAIL_CHANGED)
+        except NetworkError:
+            return self._set_error(strings.NETWORK_ERROR, "NETWORK")
+        except ApiError as exc:
+            return self._set_error(strings.friendly_error(exc.code), exc.code)
+
     async def request_password_reset(self, email: str, method: str = "otp") -> Result:
         try:
             data = await self.api.request_password_reset(email, method)

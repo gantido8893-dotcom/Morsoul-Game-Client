@@ -246,6 +246,15 @@ class ApiClient:
     async def delete_account(self, password: str) -> None:
         await self._request("DELETE", "/auth/account", json={"password": password}, retry_get=False)
 
+    async def change_email(self, password: str, new_email: str) -> dict[str, Any]:
+        resp = await self._request(
+            "POST",
+            "/auth/change-email",
+            json={"password": password, "newEmail": new_email},
+            retry_get=False,
+        )
+        return resp.json()
+
     async def request_password_reset(self, email: str, method: str = "otp") -> dict[str, Any]:
         resp = await self._request(
             "POST",

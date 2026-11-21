@@ -73,6 +73,8 @@ RESTORE_FROM_CLOUD = "Restore from the cloud"
 # Account
 ACCOUNT = "Account"
 CHANGE_PASSWORD = "Change password"
+CHANGE_EMAIL = "Change email"
+EMAIL_CHANGED = "Email updated successfully"
 SIGN_OUT = "Sign out"
 SIGN_OUT_ALL = "Sign out of all devices"
 PASSWORD_CHANGED = "Password changed. Your other devices were signed out"

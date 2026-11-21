@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from PySide6.QtCore import QEasingCurve, QPoint, QPropertyAnimation, Qt, QUrl
 from PySide6.QtGui import QDesktopServices, QMouseEvent
 from PySide6.QtWidgets import (
@@ -151,6 +153,9 @@ class MainWindow(QMainWindow):
         self.account.switch_profile_clicked.connect(self._show_progress)
         self.account.change_password.connect(
             lambda cur, new: self.bridge.call_async("change_password", cur, new)
+        )
+        self.account.change_email.connect(
+            lambda pw, email: self.bridge.call_async("change_email", pw, email)
         )
         self.account.setting_toggled.connect(lambda k, v: self.bridge.controller.set_setting_toggle(k, v))
         self.account.reset_server_url.connect(self._on_reset_server_url)
@@ -602,6 +607,13 @@ class MainWindow(QMainWindow):
             self.account.set_message(result.message, ok=result.ok)
             if result.ok:
                 self.toast.show_success("Password changed!")
+            else:
+                self.toast.show_error(result.message)
+
+        if name == "change_email" and isinstance(result, Result):
+            self.account.set_email_message(result.message, ok=result.ok)
+            if result.ok:
+                self.toast.show_success("Email updated!")
             else:
                 self.toast.show_error(result.message)
 
