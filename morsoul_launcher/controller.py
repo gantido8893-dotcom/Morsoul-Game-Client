@@ -516,7 +516,24 @@ class LauncherController:
             GameKind.RUNNING if game_is_running(self._lock_path) or r.ok else GameKind.NOT_RUNNING
         )
         self._emit()
+        if r.ok:
+            self._watch_game_exit()
         return Result(r.ok, r.message)
+
+    def _watch_game_exit(self) -> None:
+        """Poll for game.lock removal in a background thread and reset state."""
+        import threading
+
+        def _poll() -> None:
+            import time
+
+            while game_is_running(self._lock_path):
+                time.sleep(2)
+            self.state.game = GameKind.NOT_RUNNING
+            self._emit()
+
+        t = threading.Thread(target=_poll, name="game-exit-watcher", daemon=True)
+        t.start()
 
     def is_game_running(self) -> bool:
         running = game_is_running(self._lock_path)
