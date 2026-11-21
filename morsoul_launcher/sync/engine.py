@@ -207,6 +207,11 @@ class SyncEngine:
             action = classify(local, last, cloud)
 
         if action == Action.NOTHING:
+            if cloud_item is not None and local_snap is not None and (rec is None or rec.revision != cloud_item.revision):
+                self.state.profiles[profile_id] = ProfileSyncRecord(
+                    revision=cloud_item.revision, state_hash=cloud_item.stateHash, cloud_deleted=False
+                )
+                self._persist()
             return SyncOutcome(profile_id, "noop")
         if action == Action.CONFLICT:
             local_sum = _summary_from_snapshot(local_snap) if local_snap else None

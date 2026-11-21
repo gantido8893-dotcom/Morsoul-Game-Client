@@ -45,6 +45,9 @@ def classify(
     local_present = local is not None and local.state_hash is not None and local.valid
     cloud_present = cloud is not None and cloud.revision is not None
 
+    if local_present and cloud_present and local.state_hash == cloud.state_hash:
+        return Action.NOTHING
+
     if last_synced is None:
         if local_present and not cloud_present:
             return Action.UPLOAD

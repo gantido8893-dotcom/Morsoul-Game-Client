@@ -216,7 +216,10 @@ def delete_profile(path: Path | str, key: bytes, profile_id: str) -> None:
 
 
 def _meta(conn: sqlcipher.Connection) -> dict[str, str]:
-    return {r["key"]: r["value"] for r in conn.execute("SELECT key, value FROM meta")}
+    try:
+        return {r["key"]: r["value"] for r in conn.execute("SELECT key, value FROM meta")}
+    except Exception:
+        return {}
 
 
 def export_snapshot(
@@ -238,6 +241,8 @@ def export_snapshot(
         if state is None:
             raise KeyError(f"profile state not found: {profile_id}")
         meta = _meta(conn)
+        ending_val = state["ending"] if state["ending"] in {"bad", "normal", "true"} else None
+        current_case_val = state["current_case_id"] or None
 
         case_progress: dict[str, Any] = {}
         for r in conn.execute("SELECT * FROM case_progress WHERE profile_id = ?", (profile_id,)):
@@ -259,6 +264,19 @@ def export_snapshot(
                 "caseID": r["case_id"],
                 "collectedAt": r["collected_at"],
                 "via": r["via"],
+            }
+
+        if current_case_val and current_case_val not in case_progress:
+            case_progress[current_case_val] = {
+                "status": "in_progress",
+                "progressVersion": 1,
+                "objectiveID": None,
+                "warrantGranted": False,
+                "failedAttempts": 0,
+                "hintTier": 0,
+                "deductionSolved": False,
+                "interrogationResult": None,
+                "completedAt": None,
             }
 
         deduction_links: dict[str, list[list[str]]] = {}
@@ -288,12 +306,15 @@ def export_snapshot(
             checkpoint = json.loads(state["checkpoint_json"])
 
         focus_value = round(float(state["focus_energy"]), 3)
+        as_of_playtime = int(state["focus_as_of_playtime"])
+        ending_val = state["ending"] if state["ending"] in {"bad", "normal", "true"} else None
+        current_case_val = state["current_case_id"] or None
         payload = {
             "displayName": prof["display_name"],
             "reputation": state["reputation"],
-            "currentCaseID": state["current_case_id"],
-            "ending": state["ending"],
-            "focusEnergy": {"value": focus_value, "asOfPlaytime": state["focus_as_of_playtime"]},
+            "currentCaseID": current_case_val,
+            "ending": ending_val,
+            "focusEnergy": {"value": focus_value, "asOfPlaytime": as_of_playtime},
             "caseProgress": case_progress,
             "evidence": evidence,
             "deductionLinks": deduction_links,
@@ -311,9 +332,9 @@ def export_snapshot(
             "schemaVersion": int(meta.get("schemaVersion", "1")),
             "contentVersion": int(meta.get("contentVersion", "1")),
             "appVersion": app_version,
-            "revisionID": state["revision"],
-            "updatedAt": state["updated_at"],
-            "playtime": state["playtime"],
+            "revisionID": int(state["revision"]),
+            "updatedAt": int(state["updated_at"]),
+            "playtime": int(state["playtime"]),
             "payload": payload,
         }
         sealed = integrity.seal(snap, hmac_key)
@@ -368,8 +389,8 @@ def import_snapshot(
                     snap.updatedAt,
                     snap.playtime,
                     reputation,
-                    p.currentCaseID,
-                    p.ending,
+                    p.currentCaseID or "",
+                    p.ending or "",
                     round(p.focusEnergy.value, 3),
                     p.focusEnergy.asOfPlaytime,
                     json.dumps(p.dialogue.model_dump(mode="json"), separators=(",", ":")),

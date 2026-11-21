@@ -646,6 +646,8 @@ class MainWindow(QMainWindow):
                 self.toast.show_error("Cannot sync while game is running")
             elif "key_unavailable" in skipped_reasons:
                 self.toast.show_error("Database key is unavailable")
+            elif "local_invalid" in skipped_reasons:
+                self.toast.show_error("Local save data is invalid or corrupted")
             elif any(getattr(o, "kind", None) in {"uploaded", "downloaded"} for o in outcomes):
                 self.toast.show_info("Profile progress synced!")
                 self.bridge.call_async("refresh_profiles")

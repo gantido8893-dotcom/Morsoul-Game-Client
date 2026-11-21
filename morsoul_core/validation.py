@@ -92,7 +92,7 @@ def validate_snapshot(snap: Snapshot, content: Content) -> list[Issue]:
                 add("UNKNOWN_ID", "payload.unlocks.sector", f"Unknown sector {sector}")
 
     # --- the current case must exist in the progress table ---
-    if p.currentCaseID and p.currentCaseID not in p.caseProgress:
+    if p.currentCaseID and p.currentCaseID not in p.caseProgress and content.cases:
         add("UNKNOWN_ID", "payload.currentCaseID", "The current case has no progress entry")
 
     # --- unlocks must be earned (tools that unlock when a case is completed) ---

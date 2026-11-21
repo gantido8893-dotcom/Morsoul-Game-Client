@@ -15,9 +15,9 @@ from morsoul_core.limits import (
     MAX_PINS,
 )
 
-ContentID = Annotated[str, StringConstraints(pattern=r"^[a-z0-9_]{1,64}$")]
+ContentID = Annotated[str, StringConstraints(pattern=r"^[0-9a-zA-Z_-]{1,64}$")]
 Hex64 = Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{64}$")]
-ProfileID = Annotated[str, StringConstraints(pattern=r"^[0-9a-fA-F-]{36}$")]
+ProfileID = Annotated[str, StringConstraints(pattern=r"^[0-9a-zA-Z_-]{1,64}$")]
 Short = Annotated[str, StringConstraints(max_length=64)]
 UnixSeconds = Annotated[int, Field(ge=0)]
 
