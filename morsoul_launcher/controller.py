@@ -69,6 +69,8 @@ class LauncherController:
         self._listeners: list[StateListener] = []
         self._launcher_state = load_launcher_state(state_path)
         self._state_path = state_path or launcher_state_path()
+        self._custom_db_path = db_path
+        self._custom_bak_path = bak_path
         self._db_path = db_path or game_db_path()
         self._bak_path = bak_path or game_db_bak_path()
         self._lock_path = lock_path or game_lock_path()
@@ -92,6 +94,28 @@ class LauncherController:
                 launcher_key=settings.launcher_key,
                 refresh_server_config=self._refresh_server_config,
             )
+
+    def _update_user_db_path(self, user_id: str | None = None) -> None:
+        """Update local database paths based on the active user.
+        Migrates legacy game.db to user-specific db if needed.
+        """
+        if self._custom_db_path is not None:
+            return
+        old_path = self._db_path
+        self._db_path = game_db_path(user_id)
+        self._bak_path = game_db_bak_path(user_id)
+        if user_id and not self._db_path.exists():
+            legacy = game_db_path(None)
+            if legacy.exists():
+                try:
+                    import shutil
+                    shutil.copy2(legacy, self._db_path)
+                    legacy_bak = game_db_bak_path(None)
+                    if legacy_bak.exists():
+                        shutil.copy2(legacy_bak, self._bak_path)
+                    log.info("Migrated legacy game.db to %s", self._db_path)
+                except Exception:
+                    log.exception("Failed to migrate legacy game.db to user-specific db")
 
     def get_state(self) -> AppState:
         return self.state
@@ -185,6 +209,7 @@ class LauncherController:
                 password_changed_at=pw_changed,
             )
             self.state.network = NetworkKind.ONLINE
+            self._update_user_db_path(session.userID)
             self.state.last_error = None
             self._emit()
             return Result(True)
@@ -220,6 +245,7 @@ class LauncherController:
                 created_at=datetime.now(UTC).isoformat(),
             )
             self.state.network = NetworkKind.ONLINE
+            self._update_user_db_path(session.userID)
             return Result(True)
         except RateLimitedError as exc:
             self.state.auth.kind = AuthKind.SIGNED_OUT
@@ -286,6 +312,8 @@ class LauncherController:
             pass
         self.tokens.clear()
         self.state.auth = type(self.state.auth)(kind=AuthKind.SIGNED_OUT)
+        self._update_user_db_path(None)
+        self.state.profiles = []
         self._emit()
 
     async def sign_out_all(self) -> None:
@@ -296,6 +324,8 @@ class LauncherController:
             pass
         self.tokens.clear()
         self.state.auth = type(self.state.auth)(kind=AuthKind.SIGNED_OUT)
+        self._update_user_db_path(None)
+        self.state.profiles = []
         self._emit()
 
     async def change_password(self, current: str, new: str) -> Result:
@@ -512,8 +542,25 @@ class LauncherController:
 
     async def delete_cloud_profile(self, profile_id: str) -> Result:
         out = await self._engine().delete_cloud_profile(profile_id)
+        # Also delete local copy if present so it doesn't linger as 'this device only'
+        try:
+            from morsoul_core import savestore
+            if self._db_path.exists():
+                savestore.delete_profile(self._db_path, self._db_key_bytes(), profile_id)
+        except Exception:
+            pass
         await self.refresh_profiles()
         return Result(out.kind != "skipped", out.reason or "")
+
+    async def delete_local_profile(self, profile_id: str) -> Result:
+        try:
+            from morsoul_core import savestore
+            if self._db_path.exists():
+                savestore.delete_profile(self._db_path, self._db_key_bytes(), profile_id)
+            await self.refresh_profiles()
+            return Result(True)
+        except Exception as exc:
+            return Result(False, str(exc))
 
     async def load_history(self, profile_id: str) -> list[dict[str, Any]]:
         try:
@@ -522,7 +569,12 @@ class LauncherController:
             return []
 
     def launch_game(self) -> Result:
-        r = launch_game(self.settings.game_exe_path, lock_path=self._lock_path)
+        r = launch_game(
+            self.settings.game_exe_path,
+            user_id=self.state.auth.user_id if self.state.auth.kind == AuthKind.SIGNED_IN else None,
+            db_path=self._db_path,
+            lock_path=self._lock_path,
+        )
         self.state.game = (
             GameKind.RUNNING if game_is_running(self._lock_path) or r.ok else GameKind.NOT_RUNNING
         )
@@ -631,6 +683,7 @@ class LauncherController:
                     password_changed_at=me.passwordChangedAt,
                 )
                 self.state.network = NetworkKind.ONLINE
+                self._update_user_db_path(me.userID)
             except AuthError:
                 self.tokens.clear()
                 self.state.auth = type(self.state.auth)(kind=AuthKind.SIGNED_OUT)

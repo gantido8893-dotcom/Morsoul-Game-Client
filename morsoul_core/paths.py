@@ -24,11 +24,15 @@ def data_dir() -> Path:
     return path
 
 
-def game_db_path() -> Path:
+def game_db_path(user_id: str | None = None) -> Path:
+    if user_id:
+        return data_dir() / f"game_{user_id}.db"
     return data_dir() / "game.db"
 
 
-def game_db_bak_path() -> Path:
+def game_db_bak_path(user_id: str | None = None) -> Path:
+    if user_id:
+        return data_dir() / f"game_{user_id}.db.bak"
     return data_dir() / "game.db.bak"
 
 
