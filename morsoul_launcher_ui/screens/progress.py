@@ -421,7 +421,9 @@ class ProgressOverlay(QFrame):
             choose.clicked.connect(lambda: self._conflict(p))
             actions.addWidget(choose)
 
-        del_btn = QPushButton("Delete Cloud Copy")
+        is_local_only = p.sync_state == SyncState.LOCAL_ONLY
+        del_text = "Delete Local Save" if is_local_only else "Delete Cloud Copy"
+        del_btn = QPushButton(del_text)
         del_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         del_btn.setStyleSheet(f"""
             QPushButton {{
@@ -439,15 +441,17 @@ class ProgressOverlay(QFrame):
                 border-color: #EF4444;
             }}
         """)
-        del_btn.clicked.connect(lambda: self._confirm_delete(p.profile_id))
+        del_btn.clicked.connect(lambda: self._confirm_delete(p.profile_id, is_local_only=is_local_only))
         actions.addWidget(del_btn)
         actions.addStretch()
 
         lay.addLayout(actions)
         return row
 
-    def _confirm_delete(self, profile_id: str) -> None:
-        r = QMessageBox.question(self, strings.DELETE_CLOUD, strings.DELETE_CLOUD_CONFIRM)
+    def _confirm_delete(self, profile_id: str, is_local_only: bool = False) -> None:
+        title = "Delete Local Save" if is_local_only else strings.DELETE_CLOUD
+        prompt = "Delete this save from this device? This cannot be undone." if is_local_only else strings.DELETE_CLOUD_CONFIRM
+        r = QMessageBox.question(self, title, prompt)
         if r == QMessageBox.StandardButton.Yes:
             self.delete_cloud.emit(profile_id)
 

@@ -13,6 +13,7 @@ from PySide6.QtWidgets import (
     QLabel,
     QLineEdit,
     QPushButton,
+    QScrollArea,
     QStackedWidget,
     QVBoxLayout,
     QWidget,
@@ -990,7 +991,46 @@ class AccountOverlay(QWidget):
         self.privacy_cloud_card.setFixedSize(440, 365)
         self.privacy_cloud_card.setStyleSheet(card_style)
 
-        lay2 = QVBoxLayout(self.privacy_cloud_card)
+        card2_outer_lay = QVBoxLayout(self.privacy_cloud_card)
+        card2_outer_lay.setContentsMargins(0, 0, 0, 0)
+        card2_outer_lay.setSpacing(0)
+
+        # Smooth modern scroll area
+        self.privacy_scroll = QScrollArea()
+        self.privacy_scroll.setWidgetResizable(True)
+        self.privacy_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.privacy_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self.privacy_scroll.setStyleSheet("""
+            QScrollArea {
+                background: transparent;
+                border: none;
+            }
+            QScrollBar:vertical {
+                border: none;
+                background: transparent;
+                width: 6px;
+                margin: 6px 4px 6px 0px;
+            }
+            QScrollBar::handle:vertical {
+                background: rgba(203, 163, 68, 0.35);
+                min-height: 24px;
+                border-radius: 3px;
+            }
+            QScrollBar::handle:vertical:hover {
+                background: rgba(203, 163, 68, 0.65);
+            }
+            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
+                height: 0px;
+                background: none;
+            }
+            QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {
+                background: none;
+            }
+        """)
+
+        scroll_content = QWidget()
+        scroll_content.setStyleSheet("background: transparent; border: none;")
+        lay2 = QVBoxLayout(scroll_content)
         lay2.setContentsMargins(24, 20, 24, 20)
         lay2.setSpacing(0)
 
@@ -1053,7 +1093,7 @@ class AccountOverlay(QWidget):
         data_row.addStretch()
         lay2.addLayout(data_row)
 
-        lay2.addStretch()
+        lay2.addSpacing(12)
 
         # ── Separator ─────────────────────────────────────────────────────────
         sep3 = QFrame()
@@ -1126,6 +1166,10 @@ class AccountOverlay(QWidget):
         danger_lay.addLayout(del_btn_row)
 
         lay2.addWidget(danger_box)
+        lay2.addStretch()
+
+        self.privacy_scroll.setWidget(scroll_content)
+        card2_outer_lay.addWidget(self.privacy_scroll)
 
         sp_layout.addWidget(self.privacy_sec_card)
         sp_layout.addWidget(self.privacy_cloud_card)
