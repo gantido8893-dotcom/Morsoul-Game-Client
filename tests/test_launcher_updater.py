@@ -21,6 +21,12 @@ def _file_sha(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+def _file_sha_bytes(data: bytes) -> str:
+    import hashlib
+
+    return hashlib.sha256(data).hexdigest()
+
+
 @pytest.mark.asyncio
 async def test_check_bad_signature(tmp_path: Path) -> None:
     pem, pub = generate_keypair()
@@ -166,3 +172,50 @@ async def test_stats_silent_failure(tmp_path: Path) -> None:
 def test_launch_missing_exe(tmp_path: Path) -> None:
     r = launch_game(tmp_path / "missing.exe", lock_path=tmp_path / "game.lock")
     assert r.ok is False
+
+
+@pytest.mark.asyncio
+async def test_apply_zip_extraction_and_marker(tmp_path: Path) -> None:
+    import io
+    import zipfile
+
+    pem, pub = generate_keypair()
+    install = tmp_path / "install"
+    staging = tmp_path / "staging"
+    install.mkdir()
+
+    # Create in-memory zip with wrapper directory
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as zf:
+        zf.writestr("Morsoul/Morsoul.exe", b"EXEDATA")
+        zf.writestr("Morsoul/sub/asset.dat", b"ASSETDATA")
+    zip_bytes = buf.getvalue()
+    zip_sha = _file_sha_bytes(zip_bytes)
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, content=zip_bytes)
+
+    manifest = {
+        "appVersion": "1.1.3",
+        "contentVersion": 1,
+        "publishedAt": 100,
+        "files": [{"path": "Morsoul.zip", "sha256": zip_sha, "size": len(zip_bytes), "url": "http://cdn/Morsoul.zip"}],
+    }
+    sig = sign_manifest(manifest, pem)
+
+    # 1. First check: update should be available
+    info = await check_updates(manifest=manifest, signature=sig, public_key_b64=pub, install_dir=install)
+    assert info.available is True
+
+    # 2. Apply update: should extract files and write marker
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        await apply_update(info, install_dir=install, staging_dir=staging, client=client)
+
+    assert (install / "Morsoul.exe").read_bytes() == b"EXEDATA"
+    assert (install / "sub" / "asset.dat").read_bytes() == b"ASSETDATA"
+    assert (install / ".Morsoul.zip.sha256").read_text(encoding="utf-8").strip() == zip_sha
+
+    # 3. Subsequent check: should be recognized as up-to-date via marker
+    info2 = await check_updates(manifest=manifest, signature=sig, public_key_b64=pub, install_dir=install)
+    assert info2.available is False
+

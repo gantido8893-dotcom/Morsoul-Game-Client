@@ -428,6 +428,11 @@ class LauncherController:
             self.state.update.progress = (done / total) if total else 0.0
             self._emit()
 
+        def status_cb(status_text: str) -> None:
+            if status_text == "applying":
+                self.state.update.kind = UpdateKind.APPLYING
+                self._emit()
+
         try:
             await apply_update(
                 self._update_info,
@@ -435,6 +440,7 @@ class LauncherController:
                 staging_dir=staging,
                 progress=progress,
                 cancelled=lambda: self._update_cancel,
+                status_cb=status_cb,
             )
             self.state.update.kind = UpdateKind.UP_TO_DATE
             self._launcher_state.installed_app_version = getattr(self._update_info, "app_version", None)
@@ -569,8 +575,13 @@ class LauncherController:
             return []
 
     def launch_game(self) -> Result:
+        exe = self.settings.game_exe_path
+        if exe and not Path(exe).is_absolute() and self.settings.game_install_dir:
+            candidate = Path(self.settings.game_install_dir) / exe
+            if candidate.exists():
+                exe = candidate
         r = launch_game(
-            self.settings.game_exe_path,
+            exe,
             user_id=self.state.auth.user_id if self.state.auth.kind == AuthKind.SIGNED_IN else None,
             db_path=self._db_path,
             lock_path=self._lock_path,
