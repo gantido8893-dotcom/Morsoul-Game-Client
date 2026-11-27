@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import logging
 import shutil
+import time
 import zipfile
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -124,7 +125,7 @@ def _extract_zip_safely(
                 shutil.copyfileobj(src, dst)
             extracted_rel_paths.append(Path(rel_name))
             done_members += 1
-            if progress:
+            if progress and (done_members % 10 == 0 or done_members == total_members):
                 progress(f"Extracting {rel_name}", done_members, total_members)
 
     return extracted_rel_paths
@@ -173,12 +174,20 @@ async def apply_update(
     if not info.available:
         return
     install_dir.mkdir(parents=True, exist_ok=True)
+
+    # Opportunistic cleanup of leftover .old files from previous runs
+    for old_file in install_dir.glob("*.old*"):
+        try:
+            old_file.unlink()
+        except OSError:
+            pass
+
     if staging_dir.exists():
         shutil.rmtree(staging_dir)
     staging_dir.mkdir(parents=True, exist_ok=True)
 
     owns = client is None
-    client = client or httpx.AsyncClient(timeout=httpx.Timeout(60.0, connect=10.0), follow_redirects=True)
+    client = client or httpx.AsyncClient(timeout=httpx.Timeout(None, connect=20.0, read=60.0), follow_redirects=True)
     replaced: list[tuple[Path, Path]] = []  # (final, .old)
     created_markers: list[Path] = []
     try:
@@ -189,6 +198,7 @@ async def apply_update(
             dest = staging_dir / f.path
             dest.parent.mkdir(parents=True, exist_ok=True)
             downloaded = 0
+            chunk_accum = 0
             async with client.stream("GET", f.url) as resp:
                 resp.raise_for_status()
                 with dest.open("wb") as out:
@@ -197,7 +207,10 @@ async def apply_update(
                             raise UpdateCancelled("cancelled")
                         out.write(chunk)
                         downloaded += len(chunk)
-                        if progress:
+                        chunk_accum += len(chunk)
+                        # Throttle progress updates to every 512KB to avoid flooding Qt event loop
+                        if progress and (chunk_accum >= 512 * 1024 or downloaded == f.size):
+                            chunk_accum = 0
                             progress(f.path, downloaded, f.size)
             if dest.stat().st_size != f.size or _sha256_file(dest) != f.sha256:
                 raise UpdateError("The update could not be verified. Your game was not changed")
@@ -224,7 +237,10 @@ async def apply_update(
                     old = Path(str(final) + ".old")
                     if final.exists():
                         if old.exists():
-                            old.unlink()
+                            try:
+                                old.unlink()
+                            except OSError:
+                                old = final.with_name(f"{final.name}.old.{int(time.time())}")
                         final.replace(old)
                         replaced.append((final, old))
                     staged.replace(final)
@@ -239,21 +255,30 @@ async def apply_update(
                 old = Path(str(final) + ".old")
                 if final.exists():
                     if old.exists():
-                        old.unlink()
+                        try:
+                            old.unlink()
+                        except OSError:
+                            old = final.with_name(f"{final.name}.old.{int(time.time())}")
                     final.replace(old)
                     replaced.append((final, old))
                 staged.replace(final)
 
-        # success: remove .old and staging
+        # success: remove .old and staging (ignore locked .old files like running launcher)
         for _, old in replaced:
-            if old.exists():
-                old.unlink()
+            try:
+                if old.exists():
+                    old.unlink()
+            except OSError:
+                log.info("Could not remove %s immediately (file locked by active process); deferred", old)
         shutil.rmtree(staging_dir, ignore_errors=True)
     except Exception:
         # roll back every .old and remove created markers
         for marker in created_markers:
-            if marker.exists():
-                marker.unlink()
+            try:
+                if marker.exists():
+                    marker.unlink()
+            except OSError:
+                pass
         for final, old in replaced:
             try:
                 if final.exists():

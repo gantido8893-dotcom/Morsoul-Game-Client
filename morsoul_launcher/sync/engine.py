@@ -41,6 +41,7 @@ class SyncOutcome:
     reason: SkipReason | None = None
     local_summary: dict[str, Any] | None = None
     cloud_summary: dict[str, Any] | None = None
+    error_message: str | None = None
 
 
 def _summary_from_snapshot(snap: dict) -> dict[str, Any]:
@@ -172,21 +173,32 @@ class SyncEngine:
 
     async def _sync_one(self, profile_id: str, cloud_item: Any) -> SyncOutcome:
         rec = self.state.profiles.get(profile_id)
-        if rec and rec.cloud_deleted and cloud_item is None:
-            return SyncOutcome(profile_id, "noop")  # local_only; do not re-upload
-
         local_snap, skip = self._export_local(profile_id)
         if skip == "key_unavailable":
             return SyncOutcome(profile_id, "skipped", reason="key_unavailable")
         if skip == "local_invalid":
             return SyncOutcome(profile_id, "skipped", reason="local_invalid")
 
+        # If a profile was previously deleted from cloud, don't re-upload the old save automatically,
+        # UNLESS the user has made brand-new local progress (different stateHash).
+        if rec and rec.cloud_deleted and cloud_item is None:
+            if local_snap is not None and bool(rec.state_hash) and local_snap.get("stateHash") != rec.state_hash:
+                self.state.profiles.pop(profile_id, None)
+                rec = None
+                self._persist()
+            else:
+                return SyncOutcome(profile_id, "noop")  # local_only; do not re-upload
+
         local = (
             LocalInfo(state_hash=local_snap["stateHash"], valid=True)
             if local_snap
             else LocalInfo(state_hash=None, valid=True)
         )
-        last = LastSynced(rec.revision, rec.state_hash) if rec and not rec.cloud_deleted else None
+        last = (
+            LastSynced(rec.revision, rec.state_hash)
+            if rec and rec.revision > 0 and not rec.cloud_deleted
+            else None
+        )
         cloud = (
             CloudInfo(revision=cloud_item.revision, state_hash=cloud_item.stateHash)
             if cloud_item is not None
@@ -258,8 +270,8 @@ class SyncEngine:
                 self._persist()
                 return SyncOutcome(profile_id, "noop")
             if isinstance(exc, RateLimitedError):
-                return SyncOutcome(profile_id, "skipped", reason="rate_limited")
-            return SyncOutcome(profile_id, "skipped", reason="server_error")
+                return SyncOutcome(profile_id, "skipped", reason="rate_limited", error_message=exc.message)
+            return SyncOutcome(profile_id, "skipped", reason="server_error", error_message=exc.message)
 
         self.state.profiles[profile_id] = ProfileSyncRecord(
             revision=result.revision, state_hash=snap["stateHash"], cloud_deleted=False

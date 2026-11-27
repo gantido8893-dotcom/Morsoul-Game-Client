@@ -18,8 +18,30 @@ from morsoul_launcher_ui.theme import load_application_fonts
 log = logging.getLogger("morsoul.launcher.ui")
 
 
+def _configure_logging() -> None:
+    from logging.handlers import RotatingFileHandler
+    from morsoul_core.paths import data_dir
+
+    handlers: list[logging.Handler] = [logging.StreamHandler()]
+    try:
+        log_dir = data_dir() / "logs"
+        log_dir.mkdir(parents=True, exist_ok=True)
+        fh = RotatingFileHandler(
+            log_dir / "launcher.log", maxBytes=1024 * 1024, backupCount=3, encoding="utf-8"
+        )
+        handlers.append(fh)
+    except OSError:
+        pass
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+        handlers=handlers,
+        force=True,
+    )
+
+
 def run(argv: list[str] | None = None) -> int:
-    logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
+    _configure_logging()
     argv = argv if argv is not None else sys.argv
 
     # Prefer .env next to the project; fall back to process env.

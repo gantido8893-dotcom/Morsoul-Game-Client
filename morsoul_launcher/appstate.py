@@ -45,6 +45,7 @@ class UpdateState:
     kind: UpdateKind = UpdateKind.IDLE
     info: Any = None
     progress: float = 0.0
+    status_text: str = ""
     reason: str | None = None
 
 

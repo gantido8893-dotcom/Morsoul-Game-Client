@@ -211,7 +211,11 @@ def list_profiles(path: Path | str, key: bytes) -> list[dict[str, Any]]:
 
 def delete_profile(path: Path | str, key: bytes, profile_id: str) -> None:
     with connect(path, key) as conn:
-        conn.execute("DELETE FROM profiles WHERE profile_id = ?", (profile_id,))
+        for tbl in ["profiles", "profile_state", "case_progress", "deduction_links", "clues_found", "case_results"]:
+            try:
+                conn.execute(f"DELETE FROM {tbl} WHERE profile_id = ?", (profile_id,))
+            except Exception:
+                pass
         conn.commit()
 
 
@@ -366,11 +370,22 @@ def import_snapshot(
     with connect(path, key) as conn:
         conn.execute("BEGIN")
         try:
-            conn.execute("DELETE FROM profiles WHERE profile_id = ?", (pid,))
-            conn.execute(
-                "INSERT INTO profiles(profile_id, display_name, age, created_at) VALUES (?, ?, NULL, ?)",
-                (pid, p.displayName, snap.updatedAt),
-            )
+            for tbl in ["profiles", "profile_state", "case_progress", "deduction_links", "clues_found", "case_results"]:
+                try:
+                    conn.execute(f"DELETE FROM {tbl} WHERE profile_id = ?", (pid,))
+                except Exception:
+                    pass
+            cols = {r[1] for r in conn.execute("PRAGMA table_info(profiles)").fetchall()}
+            if "age" in cols:
+                conn.execute(
+                    "INSERT INTO profiles(profile_id, display_name, age, created_at) VALUES (?, ?, NULL, ?)",
+                    (pid, p.displayName, snap.updatedAt),
+                )
+            else:
+                conn.execute(
+                    "INSERT INTO profiles(profile_id, display_name, created_at) VALUES (?, ?, ?)",
+                    (pid, p.displayName, snap.updatedAt),
+                )
             checkpoint_json = (
                 None if p.checkpoint is None else json.dumps(p.checkpoint, separators=(",", ":"))
             )

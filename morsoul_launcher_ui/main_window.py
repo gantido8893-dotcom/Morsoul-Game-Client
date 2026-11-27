@@ -20,8 +20,9 @@ from PySide6.QtWidgets import (
 )
 
 from morsoul_core.paths import data_dir
-from morsoul_launcher.appstate import AppState, AuthKind
+from morsoul_launcher.appstate import AppState, AuthKind, GameKind, NetworkKind, UpdateKind
 from morsoul_launcher.controller import Result
+from morsoul_launcher.sync.engine import SyncTrigger
 from morsoul_launcher_ui.bridge import ControllerBridge
 from morsoul_launcher_ui.screens.account import AccountOverlay
 from morsoul_launcher_ui.screens.auth_modal import AuthModal
@@ -91,6 +92,7 @@ class MainWindow(QMainWindow):
 
         # Toast manager for modern top-center popup notifications
         self.toast = ToastManager(self)
+        self._was_game_running = False
 
         self._wire()
         bridge.state_changed.connect(self._on_state)
@@ -103,7 +105,15 @@ class MainWindow(QMainWindow):
         self.home.close_clicked.connect(self.close)
         self.home.check_updates.connect(lambda: self.bridge.call_async("check_updates"))
         self.home.sync_clicked.connect(self._on_sync_clicked)
-        self.home.launch_clicked.connect(lambda: self.bridge.call("launch_game"))
+
+        def _on_home_launch_clicked() -> None:
+            uk = self.bridge.controller.state.update.kind
+            if uk == UpdateKind.AVAILABLE:
+                self.bridge.call_async("apply_update")
+            elif uk not in {UpdateKind.DOWNLOADING, UpdateKind.APPLYING, UpdateKind.VERIFYING}:
+                self.bridge.call("launch_game")
+
+        self.home.launch_clicked.connect(_on_home_launch_clicked)
         self.home.account_clicked.connect(self._show_account)
         self.home.sync_chip_clicked.connect(self._on_bottom_chip_clicked)
         self.home.progress_clicked.connect(self._show_progress)
@@ -584,11 +594,26 @@ class MainWindow(QMainWindow):
         if self.progress.isVisible():
             self.progress.render_state(state)
         self.auth.set_busy(state.busy)
+        is_running = state.game == GameKind.RUNNING
+        if self._was_game_running and not is_running:
+            if (
+                state.auth.kind == AuthKind.SIGNED_IN
+                and state.network == NetworkKind.ONLINE
+                and getattr(self.bridge.controller._launcher_state, "sync_on_game_close", True)
+            ):
+                self.toast.start_sync_toast()
+                self.bridge.call_async("sync_all", SyncTrigger.GAME_CLOSED)
+        self._was_game_running = is_running
 
     def _on_finished(self, name: str, result: object) -> None:
         if name == "sign_in" and isinstance(result, Result):
             if result.ok:
                 self._show_home()
+                if getattr(self.bridge.controller._launcher_state, "sync_on_launcher_open", True):
+                    self.toast.start_sync_toast()
+                    self.bridge.call_async("sync_all")
+                else:
+                    self.bridge.call_async("refresh_profiles")
             else:
                 self.auth.set_error(result.message)
                 self.toast.show_error(result.message)
@@ -598,6 +623,7 @@ class MainWindow(QMainWindow):
             if result.ok:
                 self.toast.show_success("Account created")
                 self._show_home()
+                self.bridge.call_async("refresh_profiles")
             else:
                 self.auth.set_error(result.message)
                 self.toast.show_error(result.message)
@@ -638,8 +664,11 @@ class MainWindow(QMainWindow):
             outcomes: list[Any] = result if isinstance(result, list) else ([result] if result is not None else [])
             skipped_reasons = {getattr(o, "reason", None) for o in outcomes if getattr(o, "kind", None) == "skipped"}
 
-            if "offline" in skipped_reasons or "server_error" in skipped_reasons:
+            if "offline" in skipped_reasons:
                 self.toast.show_error("Sync failed: Server is offline")
+            elif "server_error" in skipped_reasons:
+                err_msg = next((getattr(o, "error_message", None) for o in outcomes if getattr(o, "error_message", None)), None)
+                self.toast.show_error(f"Sync failed: {err_msg}" if err_msg else "Sync failed: Server error")
             elif "not_logged_in" in skipped_reasons:
                 self.toast.show_error("Sign in to sync your progress.")
             elif "game_running" in skipped_reasons:
@@ -654,7 +683,7 @@ class MainWindow(QMainWindow):
             elif any(getattr(o, "kind", None) == "conflict" for o in outcomes):
                 self.toast.show_info("Sync conflict detected")
             else:
-                self.toast.show_info("App is up to date!")
+                self.toast.show_info("All saves are already in sync")
 
         if name == "delete_cloud_profile" and isinstance(result, Result):
             if result.ok:
@@ -663,8 +692,17 @@ class MainWindow(QMainWindow):
             else:
                 self.toast.show_error(result.message)
 
+        if name == "apply_update" and isinstance(result, Result):
+            if result.ok:
+                self.toast.show_success("Game updated successfully!")
+            else:
+                self.toast.show_error(result.message or "Update failed")
+
         if name == "check_updates":
-            self.toast.show_info("App is up to date!")
+            if self.bridge.controller.state.update.kind == UpdateKind.AVAILABLE:
+                self.toast.show_info("Update available!")
+            else:
+                self.toast.show_info("App is up to date!")
 
         if name == "continue_offline":
             self._show_home()

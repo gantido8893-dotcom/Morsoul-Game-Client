@@ -8,6 +8,7 @@ from PySide6.QtWidgets import (
     QFrame,
     QHBoxLayout,
     QLabel,
+    QProgressBar,
     QPushButton,
     QVBoxLayout,
     QWidget,
@@ -123,20 +124,20 @@ def _make_pill_btn(
             color: {fg};
             border: {border};
             border-radius: {radius}px;
-            padding: 7px 10px;
-            font-size: 17px;
+            padding: 7px 18px;
+            font-size: 16px;
             font-weight: 700;
             font-family: {fonts};
             letter-spacing: 0.5px;
             text-align: center;
-            min-width: 110px;
-            max-width: 130px;
+            min-width: 120px;
         }}
         QPushButton:hover   {{ background: {bg_hov}; border: 1px solid rgba(255, 255, 255, 0.65); }}
         QPushButton:pressed {{ background: {bg_prs}; }}
         QPushButton:disabled {{
-            background: {bg_dis};
-            color: {fg_dis};
+            background: rgba(35, 30, 22, 0.85);
+            color: #E2BD62;
+            border: 1px solid rgba(203, 163, 68, 0.50);
         }}
     """)
     return btn
@@ -380,6 +381,39 @@ class HomeScreen(QWidget):
         btn_row.addStretch()
         centre.addLayout(btn_row)
 
+        # Update progress bar & percentage label
+        self.update_progress_container = QWidget()
+        self.update_progress_container.setStyleSheet("background: transparent;")
+        prog_lay = QVBoxLayout(self.update_progress_container)
+        prog_lay.setContentsMargins(0, 8, 0, 0)
+        prog_lay.setSpacing(6)
+
+        self.update_progress_lbl = QLabel("")
+        fonts = get_font_family()
+        self.update_progress_lbl.setStyleSheet(f"font-size: 12px; font-weight: 600; color: #E2BD62; font-family: {fonts};")
+        prog_lay.addWidget(self.update_progress_lbl)
+
+        self.update_progress_bar = QProgressBar()
+        self.update_progress_bar.setFixedHeight(8)
+        self.update_progress_bar.setTextVisible(False)
+        self.update_progress_bar.setRange(0, 100)
+        self.update_progress_bar.setValue(0)
+        self.update_progress_bar.setMaximumWidth(380)
+        self.update_progress_bar.setStyleSheet("""
+            QProgressBar {
+                background-color: rgba(30, 28, 24, 0.7);
+                border: 1px solid rgba(203, 163, 68, 0.35);
+                border-radius: 4px;
+            }
+            QProgressBar::chunk {
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #CBA344, stop:1 #E2BD62);
+                border-radius: 3px;
+            }
+        """)
+        prog_lay.addWidget(self.update_progress_bar)
+        self.update_progress_container.hide()
+        centre.addWidget(self.update_progress_container)
+
         # banner
         self.banner = QLabel("")
         self.banner.setObjectName("banner")
@@ -503,12 +537,15 @@ class HomeScreen(QWidget):
 
         # version pill - if offline, show "You are offline. You can still play." in top pill
         uk = state.update.kind
+        pct = int(state.update.progress * 100) if state.update.progress else 0
         if self._is_offline_mode:
             self.update_chip.setText("You are offline. You can still play.")
         elif uk == UpdateKind.AVAILABLE:
             self.update_chip.setText("Update Available")
-        elif uk in {UpdateKind.DOWNLOADING, UpdateKind.APPLYING, UpdateKind.VERIFYING}:
-            self.update_chip.setText(strings.UPDATING)
+        elif uk == UpdateKind.DOWNLOADING:
+            self.update_chip.setText(f"Updating {pct}%" if pct > 0 else "Updating...")
+        elif uk in {UpdateKind.APPLYING, UpdateKind.VERIFYING}:
+            self.update_chip.setText(f"Installing {pct}%" if pct > 0 else "Installing...")
         elif uk == UpdateKind.FAILED:
             self.update_chip.setText(strings.UPDATE_FAILED)
         else:
@@ -521,15 +558,32 @@ class HomeScreen(QWidget):
         else:
             self.sync_chip.setText("Online Mode")
 
-        # launch button
+        # launch button & progress display
         applying = state.update.kind in {
             UpdateKind.DOWNLOADING,
             UpdateKind.APPLYING,
             UpdateKind.VERIFYING,
         }
         running = state.game == GameKind.RUNNING
-        self.launch_btn.setEnabled(not applying)
-        self.launch_btn.setText(f"  {strings.GAME_RUNNING}" if running else "  Play")
+        self.launch_btn.setEnabled(not applying and not running)
+        if applying:
+            self.update_progress_container.show()
+            self.update_progress_bar.setValue(pct)
+            status_txt = getattr(state.update, "status_text", "") or ""
+            if state.update.kind in {UpdateKind.APPLYING, UpdateKind.VERIFYING}:
+                self.launch_btn.setText(f"  Installing... {pct}%" if pct > 0 else "  Installing...")
+                self.update_progress_lbl.setText(f"Installing: {status_txt}" if status_txt else f"Installing game files... {pct}%")
+            else:
+                self.launch_btn.setText(f"  Updating... {pct}%" if pct > 0 else "  Updating...")
+                self.update_progress_lbl.setText(f"Updating: {status_txt}" if status_txt else f"Downloading update... {pct}%")
+        else:
+            self.update_progress_container.hide()
+            if state.update.kind == UpdateKind.AVAILABLE:
+                self.launch_btn.setText("  Update")
+            elif running:
+                self.launch_btn.setText(f"  {strings.GAME_RUNNING}")
+            else:
+                self.launch_btn.setText("  Play")
 
         # banner: hide offline banner so the long empty box does not display
         active_banners = [

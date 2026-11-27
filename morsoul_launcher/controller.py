@@ -29,6 +29,13 @@ from morsoul_launcher.appstate import (
     SyncState,
     UpdateKind,
 )
+from morsoul_launcher.checkpoint_bridge import (
+    clear_game_checkpoints,
+    delete_profile_checkpoints,
+    restore_account_checkpoints,
+    sync_checkpoints_to_user_db,
+    sync_user_db_to_checkpoints,
+)
 from morsoul_launcher.config import LauncherSettings
 from morsoul_launcher.game import game_is_running, launch_game
 from morsoul_launcher.state import load_launcher_state, save_launcher_state
@@ -96,26 +103,11 @@ class LauncherController:
             )
 
     def _update_user_db_path(self, user_id: str | None = None) -> None:
-        """Update local database paths based on the active user.
-        Migrates legacy game.db to user-specific db if needed.
-        """
+        """Update local database paths based on the active user."""
         if self._custom_db_path is not None:
             return
-        old_path = self._db_path
         self._db_path = game_db_path(user_id)
         self._bak_path = game_db_bak_path(user_id)
-        if user_id and not self._db_path.exists():
-            legacy = game_db_path(None)
-            if legacy.exists():
-                try:
-                    import shutil
-                    shutil.copy2(legacy, self._db_path)
-                    legacy_bak = game_db_bak_path(None)
-                    if legacy_bak.exists():
-                        shutil.copy2(legacy_bak, self._bak_path)
-                    log.info("Migrated legacy game.db to %s", self._db_path)
-                except Exception:
-                    log.exception("Failed to migrate legacy game.db to user-specific db")
 
     def get_state(self) -> AppState:
         return self.state
@@ -179,8 +171,10 @@ class LauncherController:
             elif out.kind == "skipped" and out.reason:
                 view.sync_state = SyncState.SKIPPED
                 view.sync_reason = out.reason
-            elif out.kind in {"uploaded", "downloaded", "noop"}:
+            elif out.kind in {"uploaded", "downloaded"}:
                 view.sync_state = SyncState.SYNCED
+            elif out.kind == "noop":
+                view.sync_state = SyncState.SYNCED if view.cloud_summary is not None else SyncState.LOCAL_ONLY
         self._emit()
 
     async def sign_in(self, username: str, password: str) -> Result:
@@ -210,6 +204,8 @@ class LauncherController:
             )
             self.state.network = NetworkKind.ONLINE
             self._update_user_db_path(session.userID)
+            restore_account_checkpoints(session.userID)
+            self.state.profiles = []
             self.state.last_error = None
             self._emit()
             return Result(True)
@@ -246,6 +242,7 @@ class LauncherController:
             )
             self.state.network = NetworkKind.ONLINE
             self._update_user_db_path(session.userID)
+            self.state.profiles = []
             return Result(True)
         except RateLimitedError as exc:
             self.state.auth.kind = AuthKind.SIGNED_OUT
@@ -313,6 +310,7 @@ class LauncherController:
         self.tokens.clear()
         self.state.auth = type(self.state.auth)(kind=AuthKind.SIGNED_OUT)
         self._update_user_db_path(None)
+        clear_game_checkpoints()
         self.state.profiles = []
         self._emit()
 
@@ -325,6 +323,7 @@ class LauncherController:
         self.tokens.clear()
         self.state.auth = type(self.state.auth)(kind=AuthKind.SIGNED_OUT)
         self._update_user_db_path(None)
+        clear_game_checkpoints()
         self.state.profiles = []
         self._emit()
 
@@ -421,16 +420,27 @@ class LauncherController:
             return Result(False, strings.GAME_RUNNING)
         self._update_cancel = False
         self.state.update.kind = UpdateKind.DOWNLOADING
+        self.state.update.progress = 0.0
+        self.state.update.status_text = "Starting download..."
         self._emit()
         staging = Path(self.settings.game_install_dir) / ".update-staging"
 
         def progress(_path: str, done: int, total: int) -> None:
             self.state.update.progress = (done / total) if total else 0.0
+            if total > 10000:  # bytes
+                mb_done = done / (1024 * 1024)
+                mb_total = total / (1024 * 1024)
+                pct = int((done / total) * 100) if total else 0
+                self.state.update.status_text = f"{mb_done:.1f} / {mb_total:.1f} MB ({pct}%)"
+            elif total > 0:  # files count during extraction
+                pct = int((done / total) * 100)
+                self.state.update.status_text = f"{done}/{total} files ({pct}%)"
             self._emit()
 
         def status_cb(status_text: str) -> None:
             if status_text == "applying":
                 self.state.update.kind = UpdateKind.APPLYING
+                self.state.update.status_text = "Extracting game files..."
                 self._emit()
 
         try:
@@ -457,6 +467,8 @@ class LauncherController:
         self._update_cancel = True
 
     async def refresh_profiles(self) -> None:
+        if self.state.auth.kind == AuthKind.SIGNED_IN and self.state.auth.user_id:
+            sync_checkpoints_to_user_db(self._db_path, self.state.auth.user_id)
         views: list[ProfileView] = []
         try:
             from morsoul_core import savestore
@@ -517,8 +529,12 @@ class LauncherController:
         for p in self.state.profiles:
             p.sync_state = SyncState.SYNCING
         self._emit()
+        if self.state.auth.kind == AuthKind.SIGNED_IN and self.state.auth.user_id:
+            sync_checkpoints_to_user_db(self._db_path, self.state.auth.user_id)
         try:
             outcomes = await self._engine().sync_all(trigger)
+            if self.state.auth.kind == AuthKind.SIGNED_IN and self.state.auth.user_id:
+                sync_user_db_to_checkpoints(self._db_path, self.state.auth.user_id)
         except KeyUnavailableError:
             self.state.add_banner("key", strings.KEY_UNAVAILABLE, "error")
             outcomes = []
@@ -548,21 +564,34 @@ class LauncherController:
 
     async def delete_cloud_profile(self, profile_id: str) -> Result:
         out = await self._engine().delete_cloud_profile(profile_id)
-        # Also delete local copy if present so it doesn't linger as 'this device only'
+        # Also delete local copy so it doesn't linger as 'this device only'
         try:
             from morsoul_core import savestore
+            key = self._db_key_bytes()
             if self._db_path.exists():
-                savestore.delete_profile(self._db_path, self._db_key_bytes(), profile_id)
+                savestore.delete_profile(self._db_path, key, profile_id)
         except Exception:
             pass
+        delete_profile_checkpoints(
+            profile_id,
+            self.state.auth.user_id if self.state.auth.kind == AuthKind.SIGNED_IN else None,
+        )
+        if profile_id in self._launcher_state.profiles:
+            self._launcher_state.profiles.pop(profile_id, None)
+            save_launcher_state(self._launcher_state, self._state_path)
         await self.refresh_profiles()
         return Result(out.kind != "skipped", out.reason or "")
 
     async def delete_local_profile(self, profile_id: str) -> Result:
         try:
             from morsoul_core import savestore
+            key = self._db_key_bytes()
             if self._db_path.exists():
-                savestore.delete_profile(self._db_path, self._db_key_bytes(), profile_id)
+                savestore.delete_profile(self._db_path, key, profile_id)
+            delete_profile_checkpoints(
+                profile_id,
+                self.state.auth.user_id if self.state.auth.kind == AuthKind.SIGNED_IN else None,
+            )
             await self.refresh_profiles()
             return Result(True)
         except Exception as exc:

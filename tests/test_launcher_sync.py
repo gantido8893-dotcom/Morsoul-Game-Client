@@ -111,11 +111,18 @@ async def test_sync_upload_download_conflict(make_client, tmp_path: Path) -> Non
     kept = await engine_a.resolve_conflict(pid, "keep_local")
     assert kept.kind == "uploaded"
 
-    # cloudDeleted not re-uploaded
+    # cloudDeleted not re-uploaded while local save is unchanged
     await engine_a.delete_cloud_profile(pid)
     assert state_a.profiles[pid].cloud_deleted is True
     again = await engine_a.sync_profile(pid)
     assert again.kind == "noop"
+
+    # new local progress after cloudDeleted IS re-uploaded
+    snap_new = snapshot(pid, revision=3)
+    savestore.import_snapshot(db_a, key, snap_new, bak_path=bak_a, hmac_key=KEY)
+    reuploaded = await engine_a.sync_profile(pid)
+    assert reuploaded.kind == "uploaded"
+    assert state_a.profiles[pid].cloud_deleted is False
 
     await client.aclose()
 

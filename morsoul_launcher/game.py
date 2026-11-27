@@ -35,6 +35,7 @@ def launch_game(
             cmd.extend(["--user-id", str(user_id)])
         if db_path:
             cmd.extend(["--db-path", str(db_path)])
+        log.info("Launching game: %s", cmd)
         subprocess.Popen(  # noqa: S603 — path comes from config
             cmd,
             cwd=str(Path(exe_path).parent),
