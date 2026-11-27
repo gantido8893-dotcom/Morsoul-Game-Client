@@ -453,3 +453,41 @@ def delete_profile_checkpoints(profile_id: str, user_id: str | None = None) -> N
                     p.unlink()
             except Exception:
                 pass
+
+
+def detect_played_profile_id(session_start_ts: float) -> str | None:
+    """Return profileId of the slot checkpoint modified most recently during the game session."""
+    locallow = get_locallow_dir()
+    if not locallow.exists():
+        return None
+    best_mtime = session_start_ts - 2.0
+    best_pid: str | None = None
+    for fname in SLOT_FILES.values():
+        p = locallow / fname
+        if not p.exists():
+            continue
+        try:
+            mtime = p.stat().st_mtime
+            if mtime >= best_mtime:
+                outer = json.loads(p.read_text("utf-8"))
+                pl = json.loads(outer.get("payload") or "{}")
+                pid = pl.get("profileId")
+                if pid:
+                    best_mtime = mtime
+                    best_pid = pid
+        except Exception:
+            pass
+    return best_pid
+
+
+def add_profile_playtime(db_path: Path, profile_id: str, elapsed_seconds: int) -> None:
+    """Add elapsed session seconds to a profile's playtime in the SQLCipher DB."""
+    if not db_path.exists() or not profile_id or elapsed_seconds <= 0:
+        return
+    key = get_or_create_key()
+    with savestore.connect(db_path, key, read_only=False) as conn:
+        conn.execute(
+            "UPDATE profile_state SET playtime = COALESCE(playtime, 0) + ? WHERE profile_id = ?",
+            (int(elapsed_seconds), profile_id),
+        )
+        conn.commit()

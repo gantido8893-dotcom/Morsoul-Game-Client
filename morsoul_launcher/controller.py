@@ -30,8 +30,10 @@ from morsoul_launcher.appstate import (
     UpdateKind,
 )
 from morsoul_launcher.checkpoint_bridge import (
+    add_profile_playtime,
     clear_game_checkpoints,
     delete_profile_checkpoints,
+    detect_played_profile_id,
     restore_account_checkpoints,
     sync_checkpoints_to_user_db,
     sync_user_db_to_checkpoints,
@@ -85,6 +87,7 @@ class LauncherController:
         self._ranks = ranks or []
         self._update_cancel = False
         self._update_info: Any = None
+        self._game_started_at: float | None = None
         if not settings.server_config_url:
             self._server_url = settings.default_server_url
             self._launcher_state.server_url = self._server_url
@@ -620,6 +623,8 @@ class LauncherController:
         )
         self._emit()
         if r.ok:
+            import time
+            self._game_started_at = time.time()
             self._watch_game_exit()
         return Result(r.ok, r.message)
 
@@ -632,6 +637,22 @@ class LauncherController:
 
             while game_is_running(self._lock_path):
                 time.sleep(2)
+            started_at = self._game_started_at
+            self._game_started_at = None
+            if (
+                started_at is not None
+                and self.state.auth.kind == AuthKind.SIGNED_IN
+                and self.state.auth.user_id
+            ):
+                elapsed = max(0, int(time.time() - started_at))
+                try:
+                    sync_checkpoints_to_user_db(self._db_path, self.state.auth.user_id)
+                    if elapsed > 0:
+                        played_pid = detect_played_profile_id(started_at)
+                        if played_pid:
+                            add_profile_playtime(self._db_path, played_pid, elapsed)
+                except Exception:
+                    log.exception("Failed to record session playtime on game exit")
             self.state.game = GameKind.NOT_RUNNING
             self._emit()
 
